@@ -1,6 +1,7 @@
 package org.apache.cassandra.service;
 
 import org.apache.cassandra.db.IncrementCounterClock;
+import org.apache.cassandra.db.context.IncrementCounterContext;
 import org.junit.Before;
 
 public class AntiEntropyServiceIncrementCounterTest extends AntiEntropyServiceTestAbstract
@@ -11,7 +12,7 @@ public class AntiEntropyServiceIncrementCounterTest extends AntiEntropyServiceTe
     {
         tablename = "Keyspace4";
         cfname = "IncrementCounter1";
-        clock = new IncrementCounterClock(new byte[] {});
+        clock = new CounterClock(new byte[] {}, IncrementCounterContext.instance());
     }
     
 }

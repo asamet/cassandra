@@ -358,7 +358,7 @@ public class CassandraServer implements Cassandra.Iface
         ThriftValidation.validateKey(key);
         ThriftValidation.validateColumnPath(table, column_path);
 //TODO: TEST
-        IClock cassandra_clock = ThriftValidation.validateClock(clock);
+        IClock cassandra_clock = ThriftValidation.validateClock(clock, table, column_path);
 
         RowMutation rm = new RowMutation(table, key);
         try
@@ -451,15 +451,15 @@ public class CassandraServer implements Cassandra.Iface
         ThriftValidation.validateKey(key);
         ThriftValidation.validateColumnPathOrParent(table, column_path);
 //TODO: TEST
-        IClock cassandra_clock = ThriftValidation.validateClock(clock);
+        IClock cassandra_clock = ThriftValidation.validateClock(clock, table, column_path);
 //TODO: MODIFY (modify counter clock structure to be more compact: timestamp + [(node id, count)])
         //XXX: temp impl, until clock context structure refactored
         ColumnType columnType = DatabaseDescriptor.getColumnType(table, column_path.column_family);
-        if (columnType.isIncrementCounter())
+        if (columnType.isCounter())
         {
             try
             {
-                ((IncrementCounterClock)cassandra_clock).update(InetAddress.getByAddress(new byte[4]), 0L);
+                ((CounterClock)cassandra_clock).update(InetAddress.getByAddress(new byte[4]), 0L);
             }
             catch (UnknownHostException e)
             {
@@ -704,9 +704,9 @@ public class CassandraServer implements Cassandra.Iface
         {
             thrift_clock.setTimestamp(((TimestampClock)clock).timestamp());
         }
-        else if (clock instanceof IncrementCounterClock)
+        else if (clock instanceof CounterClock)
         {
-            thrift_clock.setContext(((IncrementCounterClock)clock).context());
+            thrift_clock.setContext(((CounterClock)clock).context());
         }
         return thrift_clock;
     }

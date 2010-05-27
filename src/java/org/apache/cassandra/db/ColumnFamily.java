@@ -182,9 +182,9 @@ public class ColumnFamily implements IColumnContainer
     */
     public void addColumn(IColumn column)
     {
-        if (type_.isIncrementCounter())
+        if (type_.isCounter())
         {
-            addColumnForIncrementCounter(column);
+            addColumnForCounter(column);
             return;
         }
 
@@ -215,7 +215,7 @@ public class ColumnFamily implements IColumnContainer
         }
     }
 
-    private void addColumnForIncrementCounter(IColumn newColumn)
+    private void addColumnForCounter(IColumn newColumn)
     {
         byte[] name = newColumn.name();
         IColumn oldColumn = columns_.putIfAbsent(name, newColumn);
@@ -244,19 +244,19 @@ public class ColumnFamily implements IColumnContainer
         }
     }
 
-    public void cleanForIncrementCounter()
+    public void cleanForCounter()
     {
-        cleanForIncrementCounter(FBUtilities.getLocalAddress());
+        cleanForCounter(FBUtilities.getLocalAddress());
     }
 
 //TODO: REFACTOR? (modify: 1) where CF is sanitized to be on read side; 2) how CF is sanitized)
 //TODO: TEST (clean remote replica counts for read repair)
-    public void cleanForIncrementCounter(InetAddress node)
+    public void cleanForCounter(InetAddress node)
     {
 //TODO: MODIFY: support SuperColumn-type CF
         for (IColumn column : getSortedColumns())
         {
-            IncrementCounterClock clock = (IncrementCounterClock)column.clock();
+            CounterClock clock = (CounterClock)column.clock();
             clock.cleanNodeCounts(node);
             if (0 == clock.context().length)
             {
@@ -344,7 +344,7 @@ public class ColumnFamily implements IColumnContainer
             {
 //TODO: TEST
 //                IColumn columnDiff = columnInternal.diff(columnExternal);
-                IColumn columnDiff = type_.isIncrementCounter() ? columnInternal.diffForIncrementCounter(columnExternal) : columnInternal.diff(columnExternal);
+                IColumn columnDiff = type_.isIncrementCounter() ? columnInternal.diffForCounter(columnExternal) : columnInternal.diff(columnExternal);
                 if (columnDiff != null)
                 {
                     cfDiff.addColumn(columnDiff);

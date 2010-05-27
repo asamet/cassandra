@@ -17,10 +17,10 @@
  */
 package org.apache.cassandra.db.context;
 
-public class IncrementCounterReconciler extends AbstractCounterReconciler
+public class MinCounterReconciler extends AbstractCounterReconciler
 {
     @Override
     protected AbstractCounterContext getContextManager() {
-        return IncrementCounterContext.instance();
+        return MinCounterContext.instance();
     }
 }

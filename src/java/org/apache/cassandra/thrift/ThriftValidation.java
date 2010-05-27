@@ -34,10 +34,15 @@ import org.apache.cassandra.db.ColumnType;
 import org.apache.cassandra.db.IClock;
 import org.apache.cassandra.db.IColumn;
 //TODO: TEST
-import org.apache.cassandra.db.IncrementCounterClock;
+import org.apache.cassandra.db.CounterClock;
 import org.apache.cassandra.db.TimestampClock;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.MarshalException;
+
+import org.apache.cassandra.db.context.AbstractCounterContext;
+import org.apache.cassandra.db.context.IncrementCounterContext;
+import org.apache.cassandra.db.context.MaxCounterContext;
+import org.apache.cassandra.db.context.MinCounterContext;
 
 import static org.apache.cassandra.thrift.ThriftGlue.*;
 
@@ -351,7 +356,7 @@ public class ThriftValidation
     }
 
 //TODO: TEST
-    public static IClock validateClock(Clock clock) throws InvalidRequestException
+    public static IClock validateClock(Clock clock, String table, ColumnPath column_path) throws InvalidRequestException
     {
         if (clock.isSetTimestamp() && clock.isSetContext())
         {
@@ -362,6 +367,20 @@ public class ThriftValidation
             return new TimestampClock(clock.getTimestamp());
         }
 
-        return new IncrementCounterClock(ArrayUtils.EMPTY_BYTE_ARRAY);
+        ColumnType cfType = DatabaseDescriptor.getColumnType(table, column_path.getColumn_family());
+        AbstractCounterContext contextManager = null;
+        assert cfType.isContext();
+        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
+        if (cfType.isIncrementCounter()) {
+          contextManager = IncrementCounterContext.instance();
+        } else if (cfType.isMinCounter()) {
+          contextManager = MinCounterContext.instance();
+        } else if (cfType.isMaxCounter()) {
+          contextManager = MaxCounterContext.instance();
+        } else {
+          assert false; // TODO(asamet) - Needs a good message.
+        }
+
+        return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
     }
 }

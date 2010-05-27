@@ -613,7 +613,7 @@ public class IncrementCounterContextTest
     }
 
     @Test
-    public void testTotal()
+    public void testAggregateNodes()
     {
         List<byte[]> contexts = new ArrayList<byte[]>();
 
@@ -648,7 +648,7 @@ public class IncrementCounterContextTest
         // 0.0.0.4:    4
         // 0.0.0.5:    5
 
-        assert 24L == FBUtilities.byteArrayToLong(icc.total(merged));
+        assert 24L == FBUtilities.byteArrayToLong(icc.aggregateNodes(merged));
     }
 
     @Test

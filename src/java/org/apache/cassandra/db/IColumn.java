@@ -40,7 +40,7 @@ public interface IColumn
     public IColumn getSubColumn(byte[] columnName);
     public void addColumn(IColumn column);
     public IColumn diff(IColumn column);
-    public IColumn diffForIncrementCounter(IColumn column);
+    public IColumn diffForCounter(IColumn column);
     public int getObjectCount();
     public void updateDigest(MessageDigest digest);
     public int getLocalDeletionTime(); // for tombstone GC, so int is sufficient granularity

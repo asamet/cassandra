@@ -29,16 +29,25 @@ public enum ColumnType
     Version(ColumnType.VERSION),
     SuperVersion(ColumnType.SUPER | ColumnType.VERSION),
     IncrementCounter(ColumnType.INCR_COUNT),
-    SuperIncrementCounter(ColumnType.SUPER | ColumnType.INCR_COUNT);
+    SuperIncrementCounter(ColumnType.SUPER | ColumnType.INCR_COUNT),
+    MinCounter(ColumnType.MIN_COUNT),
+    SuperMinCounter(ColumnType.SUPER | ColumnType.MIN_COUNT),
+    MaxCounter(ColumnType.MAX_COUNT),
+    SuperMaxCounter(ColumnType.SUPER | ColumnType.MAX_COUNT);
 
     private final static int SUPER      = 1;
     private final static int VERSION    = 1 << 1;
     private final static int INCR_COUNT = 1 << 2;
+    private final static int MIN_COUNT  = 1 << 3;
+    private final static int MAX_COUNT  = 1 << 4;
 
     private final boolean isSuper;
     private final boolean isContext;
     private final boolean isVersion;
+    private final boolean isCounter;
     private final boolean isIncrementCounter;
+    private final boolean isMinCounter;
+    private final boolean isMaxCounter;
 
     public final static ColumnType create(String name)
     {
@@ -50,8 +59,11 @@ public enum ColumnType
         this.isSuper            = (SUPER      & flags) > 0;
         this.isVersion          = (VERSION    & flags) > 0;
         this.isIncrementCounter = (INCR_COUNT & flags) > 0;
+        this.isMinCounter       = (MIN_COUNT  & flags) > 0;
+        this.isMaxCounter       = (MAX_COUNT  & flags) > 0;
 
-        this.isContext = this.isVersion || this.isIncrementCounter;
+        this.isCounter = this.isIncrementCounter || this.isMinCounter || this.isMaxCounter;
+        this.isContext = this.isVersion || this.isCounter;
     }
 
     public final boolean isSuper()
@@ -64,16 +76,39 @@ public enum ColumnType
         return isContext;
     }
 
+    public final boolean isCounter()
+    {
+        return isCounter;
+    }
+
     public final boolean isIncrementCounter()
     {
         return isIncrementCounter;
+    }
+
+    public final boolean isMinCounter()
+    {
+        return isMinCounter;
+    }
+
+    public final boolean isMaxCounter()
+    {
+        return isMaxCounter;
     }
 
     public final IClock minClock()
     {
         if (isIncrementCounter)
         {
-            return IncrementCounterClock.MIN_VALUE;
+            return CounterClock.MIN_INCR_CLOCK;
+        }
+        else if (isMinCounter)
+        {
+            return CounterClock.MIN_MIN_CLOCK;
+        }
+        else if (isMaxCounter)
+        {
+            return CounterClock.MIN_MAX_CLOCK;
         }
         return TimestampClock.MIN_VALUE;
     }
@@ -82,9 +117,16 @@ public enum ColumnType
     {
         if (isIncrementCounter)
         {
-            return IncrementCounterClock.SERIALIZER;
+            return CounterClock.INCR_SERIALIZER;
         }
-
+        else if (isMinCounter)
+        {
+            return CounterClock.MIN_SERIALIZER;
+        }
+        else if (isMaxCounter)
+        {
+            return CounterClock.MAX_SERIALIZER;
+        }
         return TimestampClock.SERIALIZER;
     }
 }

@@ -38,16 +38,16 @@ import org.apache.log4j.Logger;
  * count and care must be taken that (node id, count) pairs are correctly made
  * consistent.
  */
-public class IncrementCounterContext extends AbstractCounterContext
+public class MaxCounterContext extends AbstractCounterContext
 {
     private static class LazyHolder
     {
-        private static final IncrementCounterContext incrementCounterContext = new IncrementCounterContext();
+        private static final MaxCounterContext maxCounterContext = new MaxCounterContext();
     }
 
-    public static IncrementCounterContext instance()
+    public static MaxCounterContext instance()
     {
-        return LazyHolder.incrementCounterContext;
+        return LazyHolder.maxCounterContext;
     }
 
     /**
@@ -80,8 +80,13 @@ public class IncrementCounterContext extends AbstractCounterContext
             // node id found: increment count, shift to front
             long count = FBUtilities.byteArrayToLong(context, offset + idLength);
 
+            // Take the max
+            if (delta > count)
+            {
+                count = delta;
+            }
             System.arraycopy(context, 0, context, stepLength, offset);
-            writeElement(context, nodeId, count+delta);
+            writeElement(context, nodeId, count);
 
             return context;
         }
@@ -128,18 +133,18 @@ public class IncrementCounterContext extends AbstractCounterContext
                     continue;
                 }
 
-                // local id: sum counts
+                // local id: max counts
                 if (this.idWrapper.equals(id))
                 {
                     Pair<Long, Long> countTimestampPair = contextsMap.get(id);
                     contextsMap.put(id, new Pair<Long, Long>(
-                        count + countTimestampPair.left,
+                        Math.max(count, countTimestampPair.left),
                         // note: keep higher timestamp (for delete marker)
                         Math.max(timestamp, countTimestampPair.right)));
                     continue;
                 }
 
-                // remote id: keep highest count
+                // remote id: keep max count
                 if (((Pair<Long, Long>)contextsMap.get(id)).left < count)
                 {
                     contextsMap.put(id, new Pair<Long, Long>(count, timestamp));
@@ -182,18 +187,22 @@ public class IncrementCounterContext extends AbstractCounterContext
     @Override
     public byte[] aggregateNodes(byte[] context)
     {
-        long total = 0;
+        long max = Long.MIN_VALUE;
 
         for (int offset = 0; offset < context.length; offset += stepLength)
         {
             long count = FBUtilities.byteArrayToLong(context, offset + idLength);
-            total += count;
+            if (count > max)
+            {
+                max = count;
+            }
         }
 
-        return FBUtilities.toByteArray(total);
+        return FBUtilities.toByteArray(max);
     }
 
     // remove the count for a given node id
+    // TODO(asamet) - Fix this for max.
     @Override
     public byte[] cleanNodeCounts(byte[] context, InetAddress node)
     {

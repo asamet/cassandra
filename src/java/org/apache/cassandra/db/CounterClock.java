@@ -28,22 +28,36 @@ import java.util.List;
 import org.apache.commons.lang.ArrayUtils;
 
 import org.apache.cassandra.db.context.IContext.ContextRelationship;
+import org.apache.cassandra.db.context.AbstractCounterContext;
 import org.apache.cassandra.db.context.IncrementCounterContext;
+import org.apache.cassandra.db.context.MaxCounterContext;
+import org.apache.cassandra.db.context.MinCounterContext;
 import org.apache.cassandra.io.ICompactSerializer2;
 import org.apache.cassandra.utils.FBUtilities;
 
-public class IncrementCounterClock implements IClock
+public class CounterClock implements IClock
 {
-    public static IncrementCounterClock MIN_VALUE = new IncrementCounterClock(ArrayUtils.EMPTY_BYTE_ARRAY);
-    public static ICompactSerializer2<IClock> SERIALIZER = new IncrementCounterClockSerializer();
+    public static CounterClock MIN_INCR_CLOCK =
+        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, IncrementCounterContext.instance());
+    public static CounterClock MIN_MIN_CLOCK =
+        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, MinCounterContext.instance());
+    public static CounterClock MIN_MAX_CLOCK =
+        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, MaxCounterContext.instance());
 
-    private static IncrementCounterContext contextManager = IncrementCounterContext.instance();
+    public static ICompactSerializer2<IClock> INCR_SERIALIZER =
+        new CounterClockSerializer(IncrementCounterContext.instance());
+    public static ICompactSerializer2<IClock> MIN_SERIALIZER = 
+        new CounterClockSerializer(MinCounterContext.instance());
+    public static ICompactSerializer2<IClock> MAX_SERIALIZER = 
+        new CounterClockSerializer(MaxCounterContext.instance());
 
     public byte[] context;
+    public AbstractCounterContext contextManager;
 
-    public IncrementCounterClock(byte[] context)
+    public CounterClock(byte[] context, AbstractCounterContext contextManager)
     {
         this.context = context;
+        this.contextManager = contextManager; 
     }
 
     public byte[] context()
@@ -58,9 +72,9 @@ public class IncrementCounterClock implements IClock
 
     public ClockRelationship compare(IClock other)
     {
-        assert other instanceof IncrementCounterClock : "Wrong class type.";
+        assert other instanceof CounterClock : "Wrong class type.";
 
-        ContextRelationship rel = contextManager.compare(context, ((IncrementCounterClock)other).context());
+        ContextRelationship rel = contextManager.compare(context, ((CounterClock)other).context());
         switch (rel)
         {
             case EQUAL:
@@ -76,9 +90,9 @@ public class IncrementCounterClock implements IClock
 
     public ClockRelationship diff(IClock other)
     {
-        assert other instanceof IncrementCounterClock : "Wrong class type.";
+        assert other instanceof CounterClock : "Wrong class type.";
 
-        ContextRelationship rel = contextManager.diff(context, ((IncrementCounterClock)other).context());
+        ContextRelationship rel = contextManager.diff(context, ((CounterClock)other).context());
         switch (rel)
         {
             case EQUAL:
@@ -99,11 +113,11 @@ public class IncrementCounterClock implements IClock
         contexts.add(context);
         for (IClock clock : otherClocks)
         {
-            assert clock instanceof IncrementCounterClock : "Wrong class type.";
-            contexts.add(((IncrementCounterClock)clock).context);
+            assert clock instanceof CounterClock : "Wrong class type.";
+            contexts.add(((CounterClock)clock).context);
         }
 
-        return new IncrementCounterClock(contextManager.merge(contexts));
+        return new CounterClock(contextManager.merge(contexts), this.contextManager);
     }
 
     public int size()
@@ -113,7 +127,23 @@ public class IncrementCounterClock implements IClock
 
     public void serialize(DataOutput out) throws IOException
     {
-        SERIALIZER.serialize(this, out);
+        // TODO(asamet) Make this cleaner, don't use an instance of
+        if (contextManager instanceof IncrementCounterContext)
+        {
+            INCR_SERIALIZER.serialize(this, out);
+        }
+        else if (contextManager instanceof MinCounterContext)
+        {
+            MIN_SERIALIZER.serialize(this, out);
+        }
+        else if (contextManager instanceof MaxCounterContext)
+        {
+            MAX_SERIALIZER.serialize(this, out);
+        }
+        else
+        {
+            assert false;
+        }
     }
 
     public String toString()
@@ -127,11 +157,18 @@ public class IncrementCounterClock implements IClock
     }
 }
 
-class IncrementCounterClockSerializer implements ICompactSerializer2<IClock> 
+class CounterClockSerializer implements ICompactSerializer2<IClock> 
 {
+    private AbstractCounterContext contextManager;
+
+    public CounterClockSerializer(AbstractCounterContext contextManager)
+    {
+        this.contextManager = contextManager;
+    }
+
     public void serialize(IClock c, DataOutput out) throws IOException
     {
-        FBUtilities.writeByteArray(((IncrementCounterClock)c).context(), out);
+        FBUtilities.writeByteArray(((CounterClock)c).context(), out);
     }
 
     public IClock deserialize(DataInput in) throws IOException
@@ -146,6 +183,6 @@ class IncrementCounterClockSerializer implements ICompactSerializer2<IClock>
         {
             in.readFully(context);
         }
-        return new IncrementCounterClock(context);
+        return new CounterClock(context, contextManager);
     }
 }

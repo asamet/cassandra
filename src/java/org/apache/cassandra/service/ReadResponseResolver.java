@@ -108,10 +108,10 @@ List<ColumnFamily> originals = new ArrayList<ColumnFamily>();
 //TODO: MODIFY: [not deterministic] clean counts from remote replicas
                 ColumnFamily cf = result.row().cf;
                 if (!FBUtilities.getLocalAddress().equals(response.getFrom()) &&
-                    cf != null && cf.getColumnType().isIncrementCounter())
+                    cf != null && cf.getColumnType().isCounter())
                 {
                     cf = cf.cloneMe();
-                    cf.cleanForIncrementCounter();
+                    cf.cleanForCounter();
                 }
 //                versions.add(result.row().cf);
 //TODO: REMOVE
@@ -176,9 +176,9 @@ System.out.println("                    RRR: 3A: [" + endPoints.get(i) + "]: " +
 //TODO: REMOVE
 ColumnFamily origDiffCf = diffCf.cloneMe();
 //TODO: TEST (clean remote node's counts, when sending read repair)
-            if (diffCf.getColumnType().isIncrementCounter())
+            if (diffCf.getColumnType().isCounter())
             {
-                diffCf.cleanForIncrementCounter(endPoints.get(i));
+                diffCf.cleanForCounter(endPoints.get(i));
                 // same check as ColumnFamily.diff()
 //TODO: MODIFY: the check in ColumnFamilyStore.removeDeleted() appears better
                 if (diffCf.getColumnsMap().isEmpty() || !diffCf.isMarkedForDelete())

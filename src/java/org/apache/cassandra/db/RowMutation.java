@@ -47,6 +47,10 @@ import org.apache.cassandra.thrift.ColumnOrSuperColumn;
 import org.apache.cassandra.thrift.Deletion;
 import org.apache.cassandra.thrift.Mutation;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.db.context.AbstractCounterContext;
+import org.apache.cassandra.db.context.IncrementCounterContext;
+import org.apache.cassandra.db.context.MaxCounterContext;
+import org.apache.cassandra.db.context.MinCounterContext;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.concurrent.StageManager;
@@ -273,6 +277,7 @@ public class RowMutation
         for (Map.Entry<String, List<ColumnOrSuperColumn>> entry : cfmap.entrySet())
         {
             String cfName = entry.getKey();
+            ColumnType columnType = DatabaseDescriptor.getColumnType(table, cfName);
             for (ColumnOrSuperColumn cosc : entry.getValue())
             {
                 if (cosc.column == null)
@@ -282,7 +287,7 @@ public class RowMutation
                     {
 //TODO: TEST
 //                        rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, column.timestamp);
-                        rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, unthriftifyClock(column.clock));
+                        rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, unthriftifyClock(column.clock, columnType));
                     }
                 }
                 else
@@ -290,7 +295,7 @@ public class RowMutation
                     assert cosc.super_column == null;
 //TODO: TEST
 //                    rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, cosc.column.timestamp);
-                    rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, unthriftifyClock(cosc.column.clock));
+                    rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, unthriftifyClock(cosc.column.clock, columnType));
                 }
             }
         }
@@ -315,32 +320,34 @@ public class RowMutation
 
     private static void addColumnOrSuperColumnToRowMutation(RowMutation rm, String cfName, ColumnOrSuperColumn cosc)
     {
+        ColumnType columnType = DatabaseDescriptor.getColumnType(rm.table_, cfName);
         if (cosc.column == null)
         {
             for (org.apache.cassandra.thrift.Column column : cosc.super_column.columns)
             {
 //TODO: TEST
 //                rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, column.timestamp);
-                rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, unthriftifyClock(column.clock));
+                rm.add(new QueryPath(cfName, cosc.super_column.name, column.name), column.value, unthriftifyClock(column.clock, columnType));
             }
         }
         else
         {
 //TODO: TEST
 //            rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, cosc.column.timestamp);
-            rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, unthriftifyClock(cosc.column.clock));
+            rm.add(new QueryPath(cfName, null, cosc.column.name), cosc.column.value, unthriftifyClock(cosc.column.clock, columnType));
         }
     }
 
     private static void deleteColumnOrSuperColumnToRowMutation(RowMutation rm, String cfName, Deletion del)
     {
-        IClock deleteClock = unthriftifyClockForDelete(del.clock);
+        ColumnType columnType= DatabaseDescriptor.getColumnType(rm.table_, cfName);
+        IClock deleteClock = unthriftifyClockForDelete(del.clock, columnType);
         if (del.predicate != null && del.predicate.column_names != null)
         {
             for(byte[] c : del.predicate.column_names)
             {
 //TODO: TEST
-                if (del.super_column == null && DatabaseDescriptor.getColumnFamilyType(rm.table_, cfName).isSuper())
+                if (del.super_column == null && columnType.isSuper())
                     rm.delete(new QueryPath(cfName, c), deleteClock);
                 else
                     rm.delete(new QueryPath(cfName, del.super_column, c), deleteClock);
@@ -354,29 +361,54 @@ public class RowMutation
     }
 
 //TODO: TEST
-    private static IClock unthriftifyClock(Clock clock)
+    private static IClock unthriftifyClock(Clock clock, ColumnType cfType)
     {
         if (clock.isSetTimestamp())
         {
             return new TimestampClock(clock.getTimestamp());
         }
 
-//TODO: MODIFY: assume IncrementCounterClock, for now
-        return new IncrementCounterClock(ArrayUtils.EMPTY_BYTE_ARRAY);
+        AbstractCounterContext contextManager = null;
+        assert cfType.isContext();
+        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
+        if (cfType.isIncrementCounter()) {
+          contextManager = IncrementCounterContext.instance();
+        } else if (cfType.isMinCounter()) {
+          contextManager = MinCounterContext.instance();
+        } else if (cfType.isMaxCounter()) {
+          contextManager = MaxCounterContext.instance();
+        } else {
+          assert false; // TODO(asamet) - Needs a good message.
+        }
+
+//TODO: MODIFY: assume CounterClock, for now
+        return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
     }
 
 //TODO: REMOVE (temporary fix, until clock context structure modified)
-    private static IClock unthriftifyClockForDelete(Clock clock)
+    private static IClock unthriftifyClockForDelete(Clock clock, ColumnType cfType)
     {
         if (clock.isSetTimestamp())
         {
             return new TimestampClock(clock.getTimestamp());
         }
 
-        IClock cassandra_clock = new IncrementCounterClock(ArrayUtils.EMPTY_BYTE_ARRAY);
+        AbstractCounterContext contextManager = null;
+        assert cfType.isContext();
+        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
+        if (cfType.isIncrementCounter()) {
+          contextManager = IncrementCounterContext.instance();
+        } else if (cfType.isMinCounter()) {
+          contextManager = MinCounterContext.instance();
+        } else if (cfType.isMaxCounter()) {
+          contextManager = MaxCounterContext.instance();
+        } else {
+          assert false; // TODO(asamet) - Needs a good message.
+        }
+        IClock cassandra_clock = new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
         try
         {
-            ((IncrementCounterClock)cassandra_clock).update(InetAddress.getByAddress(new byte[4]), 0L);
+            ((CounterClock)cassandra_clock).update(InetAddress.getByAddress(new byte[4]), 0L);
         }
         catch (UnknownHostException e)
         {
@@ -394,14 +426,14 @@ public class RowMutation
         {
             ColumnFamily cf = entry.getValue();
             ColumnType columnType = cf.getColumnType();
-            if (columnType.isIncrementCounter())
+            if (columnType.isCounter())
             {
-                updateIncrementCounterClocks(node, cf);
+                updateCounterClocks(node, cf);
             }
         }
     }
 
-    private void updateIncrementCounterClocks(InetAddress node, ColumnFamily cf)
+    private void updateCounterClocks(InetAddress node, ColumnFamily cf)
     {
         ColumnType columnType = cf.getColumnType();
 
@@ -418,7 +450,7 @@ public class RowMutation
 
 //TODO: MODIFY: prob need to create new Column()
                 // update in-place, although Column is (abstractly) immutable
-                ((IncrementCounterClock)col.clock()).update(
+                ((CounterClock)col.clock()).update(
                     node,
                     FBUtilities.byteArrayToLong(col.value()));
 
@@ -437,7 +469,7 @@ public class RowMutation
                     continue;
 
 //TODO: MODIFY: prob need to create new Column()
-                ((IncrementCounterClock)subCol.clock()).update(
+                ((CounterClock)subCol.clock()).update(
                     node,
                     FBUtilities.byteArrayToLong(subCol.value()));
             }

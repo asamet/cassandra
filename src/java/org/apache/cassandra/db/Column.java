@@ -177,10 +177,10 @@ public class Column implements IColumn
     }
 
 //TODO: TEST
-    public IColumn diffForIncrementCounter(IColumn column)
+    public IColumn diffForCounter(IColumn column)
     {
         // need to use alternate code path for counters (data encapsulated in clock)
-        if (ClockRelationship.GREATER_THAN == ((IncrementCounterClock)column.clock()).diff(clock))
+        if (ClockRelationship.GREATER_THAN == ((CounterClock)column.clock()).diff(clock))
         {
             return column;
         }

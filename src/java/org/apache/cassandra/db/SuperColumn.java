@@ -182,9 +182,9 @@ public class SuperColumn implements IColumn, IColumnContainer
     	assert column instanceof Column : "A super column can only contain simple columns";
 
 //TODO: REFACTOR? (modify this switch)
-        if (columnType.isIncrementCounter())
+        if (columnType.isCounter())
         {
-            addColumnForIncrementCounter(column);
+            addColumnForCounter(column);
             return;
         }
 
@@ -208,7 +208,7 @@ public class SuperColumn implements IColumn, IColumnContainer
     	}
     }
 
-    private void addColumnForIncrementCounter(IColumn newColumn)
+    private void addColumnForCounter(IColumn newColumn)
     {
         byte[] name = newColumn.name();
         IColumn oldColumn = columns_.putIfAbsent(name, newColumn);
@@ -294,7 +294,7 @@ public class SuperColumn implements IColumn, IColumnContainer
     }
 
 //TODO: TEST
-    public IColumn diffForIncrementCounter(IColumn columnNew)
+    public IColumn diffForCounter(IColumn columnNew)
     {
         // need to use alternate code path for counters (data encapsulated in clock)
     	IColumn columnDiff = new SuperColumn(columnNew.name(), ((SuperColumn)columnNew).getComparator(), ((SuperColumn)columnNew).getColumnType(), ((SuperColumn)columnNew).reconciler);
@@ -316,7 +316,7 @@ public class SuperColumn implements IColumn, IColumnContainer
         	}
         	else
         	{
-            	IColumn subColumnDiff = columnInternal.diffForIncrementCounter(subColumn);
+            	IColumn subColumnDiff = columnInternal.diffForCounter(subColumn);
         		if(subColumnDiff != null)
         		{
             		columnDiff.addColumn(subColumnDiff);
