@@ -54,10 +54,10 @@ public class IncrementCounterClockTest
     @Test
     public void testUpdate() throws UnknownHostException
     {
-        IncrementCounterClock clock;
+        CounterClock clock;
 
         // note: updates are in-place
-        clock = new IncrementCounterClock(new byte[0]);
+        clock = new CounterClock(new byte[0], icc);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
         assert clock.context().length == stepLength;
@@ -81,34 +81,34 @@ public class IncrementCounterClockTest
     @Test
     public void testCompare() throws UnknownHostException
     {
-        IncrementCounterClock clock;
-        IncrementCounterClock other;
+        CounterClock clock;
+        CounterClock other;
 
         // greater than
-        clock = new IncrementCounterClock(Util.concatByteArrays(
+        clock = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(10L)
-            ));
-        other = new IncrementCounterClock(Util.concatByteArrays(
+            ), icc);
+        other = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(3L)
-            ));
+            ), icc);
 
         assert clock.compare(other) == IClock.ClockRelationship.GREATER_THAN;
 
         // equal
-        clock = new IncrementCounterClock(Util.concatByteArrays(
+        clock = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(5L)
-            ));
-        other = new IncrementCounterClock(Util.concatByteArrays(
+            ), icc);
+        other = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(5L)
-            ));
+            ), icc);
 
         assert clock.compare(other) == IClock.ClockRelationship.EQUAL;
 
         // less than
-        clock = new IncrementCounterClock(new byte[0]);
-        other = new IncrementCounterClock(Util.concatByteArrays(
+        clock = new CounterClock(new byte[0], icc);
+        other = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(5L)
-            ));
+            ), icc);
 
         assert clock.compare(other) == IClock.ClockRelationship.LESS_THAN;
 
@@ -118,42 +118,42 @@ public class IncrementCounterClockTest
     @Test
     public void testDiff() throws UnknownHostException
     {
-        IncrementCounterClock clock;
-        IncrementCounterClock other;
+        CounterClock clock;
+        CounterClock other;
 
         // greater than
-        clock = new IncrementCounterClock(new byte[0]);
+        clock = new CounterClock(new byte[0], icc);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
-        other = new IncrementCounterClock(new byte[0]);
+        other = new CounterClock(new byte[0], icc);
 
         assert clock.diff(other) == IClock.ClockRelationship.GREATER_THAN;
 
         // equal
-        clock = new IncrementCounterClock(new byte[0]);
+        clock = new CounterClock(new byte[0], icc);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
-        other = new IncrementCounterClock(new byte[0]);
+        other = new CounterClock(new byte[0], icc);
         other.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
         assert clock.diff(other) == IClock.ClockRelationship.EQUAL;
 
         // less than
-        clock = new IncrementCounterClock(new byte[0]);
+        clock = new CounterClock(new byte[0], icc);
 
-        other = new IncrementCounterClock(new byte[0]);
+        other = new CounterClock(new byte[0], icc);
         other.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
         other.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
         assert clock.diff(other) == IClock.ClockRelationship.LESS_THAN;
 
         // disjoint
-        clock = new IncrementCounterClock(new byte[0]);
+        clock = new CounterClock(new byte[0], icc);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
         clock.update(InetAddress.getByAddress(FBUtilities.toByteArray(2)), 1L);
 
-        other = new IncrementCounterClock(new byte[0]);
+        other = new CounterClock(new byte[0], icc);
         other.update(InetAddress.getByAddress(FBUtilities.toByteArray(9)), 1L);
         other.update(InetAddress.getByAddress(FBUtilities.toByteArray(1)), 1L);
 
@@ -164,35 +164,35 @@ public class IncrementCounterClockTest
     public void testGetSuperset()
     {
         // empty list
-        assert ((IncrementCounterClock)IncrementCounterClock.MIN_VALUE.getSuperset(new LinkedList<IClock>())).context().length == 0;
+        assert ((CounterClock)CounterClock.MIN_INCR_CLOCK.getSuperset(new LinkedList<IClock>())).context().length == 0;
 
         // normal list
         List<IClock> clocks = new LinkedList<IClock>();
-        clocks.add(new IncrementCounterClock(Util.concatByteArrays(
+        clocks.add(new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(1), FBUtilities.toByteArray(128L), FBUtilities.toByteArray(1L),
             FBUtilities.toByteArray(9), FBUtilities.toByteArray(62L), FBUtilities.toByteArray(2L),
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(32L), FBUtilities.toByteArray(3L)
-            )));
-        clocks.add(new IncrementCounterClock(Util.concatByteArrays(
+            ), icc));
+        clocks.add(new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(1), FBUtilities.toByteArray(32L), FBUtilities.toByteArray(4L),
             FBUtilities.toByteArray(2), FBUtilities.toByteArray(4L), FBUtilities.toByteArray(5L),
             FBUtilities.toByteArray(6), FBUtilities.toByteArray(2L), FBUtilities.toByteArray(6L)
-            )));
-        clocks.add(new IncrementCounterClock(Util.concatByteArrays(
+            ), icc));
+        clocks.add(new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(3), FBUtilities.toByteArray(15L), FBUtilities.toByteArray(7L),
             FBUtilities.toByteArray(8), FBUtilities.toByteArray(14L), FBUtilities.toByteArray(8L),
             FBUtilities.toByteArray(4), FBUtilities.toByteArray(13L), FBUtilities.toByteArray(9L)
-            )));
-        clocks.add(new IncrementCounterClock(Util.concatByteArrays(
+            ), icc));
+        clocks.add(new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(2), FBUtilities.toByteArray(999L), FBUtilities.toByteArray(10L),
             FBUtilities.toByteArray(4), FBUtilities.toByteArray(632L), FBUtilities.toByteArray(11L),
             FBUtilities.toByteArray(8), FBUtilities.toByteArray(45L), FBUtilities.toByteArray(12L)
-            )));
-        clocks.add(new IncrementCounterClock(Util.concatByteArrays(
+            ), icc));
+        clocks.add(new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(1234L), FBUtilities.toByteArray(13L),
             FBUtilities.toByteArray(3), FBUtilities.toByteArray(655L), FBUtilities.toByteArray(14L),
             FBUtilities.toByteArray(7), FBUtilities.toByteArray(1L),   FBUtilities.toByteArray(15L)
-            )));
+            ), icc));
 
         // 7:           1L       15L
         // 3:           655L     14L
@@ -204,7 +204,7 @@ public class IncrementCounterClockTest
         // 9:           62L       2L
         // 1:           128L      1L (note: take timestamp of dominant count)
 
-        byte[] merged = ((IncrementCounterClock)IncrementCounterClock.MIN_VALUE.getSuperset(clocks)).context();
+        byte[] merged = ((CounterClock)CounterClock.MIN_MIN_CLOCK.getSuperset(clocks)).context();
 
         assert   7 == FBUtilities.byteArrayToInt(merged,  0*stepLength);
         assert  1L == FBUtilities.byteArrayToLong(merged, 0*stepLength + idLength);
@@ -251,13 +251,13 @@ public class IncrementCounterClockTest
     @Test
     public void testCleanNodeCounts() throws UnknownHostException
     {
-        IncrementCounterClock clock = new IncrementCounterClock(Util.concatByteArrays(
+        CounterClock clock = new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(5), FBUtilities.toByteArray(912L), FBUtilities.toByteArray(5L),
             FBUtilities.toByteArray(3), FBUtilities.toByteArray(35L),  FBUtilities.toByteArray(4L),
             FBUtilities.toByteArray(6), FBUtilities.toByteArray(15L),  FBUtilities.toByteArray(3L),
             FBUtilities.toByteArray(9), FBUtilities.toByteArray(6L),   FBUtilities.toByteArray(2L),
             FBUtilities.toByteArray(7), FBUtilities.toByteArray(1L),   FBUtilities.toByteArray(1L)
-            ));
+            ), icc);
         byte[] bytes = clock.context();
 
         assert   9 == FBUtilities.byteArrayToInt(bytes,  3*stepLength);
@@ -291,23 +291,23 @@ public class IncrementCounterClockTest
     @Test
     public void testSerializeDeserialize() throws IOException, UnknownHostException
     {
-        IncrementCounterClock clock = new IncrementCounterClock(Util.concatByteArrays(
+        CounterClock clock = new CounterClock(Util.concatByteArrays(
             FBUtilities.toByteArray(5), FBUtilities.toByteArray(912L), FBUtilities.toByteArray(5L),
             FBUtilities.toByteArray(3), FBUtilities.toByteArray(35L),  FBUtilities.toByteArray(4L),
             FBUtilities.toByteArray(6), FBUtilities.toByteArray(15L),  FBUtilities.toByteArray(3L),
             FBUtilities.toByteArray(9), FBUtilities.toByteArray(6L),   FBUtilities.toByteArray(2L),
             FBUtilities.toByteArray(7), FBUtilities.toByteArray(1L),   FBUtilities.toByteArray(1L)
-            ));
+            ), icc);
 
         // size
         DataOutputBuffer bufOut = new DataOutputBuffer();
-        IncrementCounterClock.SERIALIZER.serialize(clock, bufOut);
+        CounterClock.INCR_SERIALIZER.serialize(clock, bufOut);
 
         assert bufOut.getLength() == clock.size();
 
         // equality
         ByteArrayInputStream bufIn = new ByteArrayInputStream(bufOut.getData(), 0, bufOut.getLength());
-        IncrementCounterClock deserialized = (IncrementCounterClock)IncrementCounterClock.SERIALIZER.deserialize(new DataInputStream(bufIn));
+        CounterClock deserialized = (CounterClock)CounterClock.INCR_SERIALIZER.deserialize(new DataInputStream(bufIn));
 
         assert 0 == FBUtilities.compareByteArrays(clock.context(), deserialized.context());
     }

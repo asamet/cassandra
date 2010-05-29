@@ -167,7 +167,7 @@ public class IncrementCounterReconcilerTest
 
         rightClock = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(0L), FBUtilities.toByteArray(100L)
-            ));
+            ), icc);
         right = new Column(
             "x".getBytes(),
             ByteBuffer.allocate(4).putInt(139).array(), // localDeleteTime secs
@@ -190,9 +190,9 @@ public class IncrementCounterReconcilerTest
         assert reconciled.isMarkedForDelete() == true;
 
         // delete + normal: delete has higher timestamp
-        leftClock = new IncrementCounterClock(Util.concatByteArrays(
+        leftClock = new CounterClock(Util.concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(0L), FBUtilities.toByteArray(100L)
-            ));
+            ), icc);
         left = new Column(
             "x".getBytes(),
             ByteBuffer.allocate(4).putInt(139).array(), // localDeleteTime secs
@@ -269,8 +269,8 @@ public class IncrementCounterReconcilerTest
     @Test
     public void testReconcileDeleted()
     {
-        IncrementCounterClock leftClock;
-        IncrementCounterClock rightClock;
+        CounterClock leftClock;
+        CounterClock rightClock;
 
         // note: merge clocks + take later localDeleteTime
         Column left;

@@ -1,6 +1,6 @@
 package org.apache.cassandra.service;
 
-import org.apache.cassandra.db.IncrementCounterClock;
+import org.apache.cassandra.db.CounterClock;
 import org.apache.cassandra.db.context.IncrementCounterContext;
 import org.junit.Before;
 

@@ -26,6 +26,7 @@ import static junit.framework.Assert.assertNull;
 import static org.apache.cassandra.Util.concatByteArrays;
 import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.context.IncrementCounterContext;
 import org.apache.cassandra.db.context.IncrementCounterReconciler;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -42,26 +43,28 @@ public class SuperColumnTest
     @Test
     public void testAddColumnIncrementCounter()
     {
+      IncrementCounterContext icc = IncrementCounterContext.instance();
+
     	SuperColumn sc = new SuperColumn("sc1".getBytes(), new LongType(), ColumnType.SuperIncrementCounter, new IncrementCounterReconciler());
 
-    	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new IncrementCounterClock(concatByteArrays(
+    	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new CounterClock(concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(2L),
             FBUtilities.toByteArray(1), FBUtilities.toByteArray(7L), FBUtilities.toByteArray(3L),
             FBUtilities.toByteArray(2), FBUtilities.toByteArray(5L), FBUtilities.toByteArray(2L),
             FBUtilities.toByteArray(4), FBUtilities.toByteArray(2L), FBUtilities.toByteArray(1L)
-            ))));
-    	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new IncrementCounterClock(concatByteArrays(
+            ), icc)));
+    	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new CounterClock(concatByteArrays(
             FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(10L),
             FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(6L),
             FBUtilities.toByteArray(4), FBUtilities.toByteArray(4L), FBUtilities.toByteArray(5L),
             FBUtilities.toByteArray(2), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(4L)
-            ))));
+            ), icc)));
 
-    	sc.addColumn(new Column(getBytes(2), "value".getBytes(), new IncrementCounterClock(concatByteArrays(
+    	sc.addColumn(new Column(getBytes(2), "value".getBytes(), new CounterClock(concatByteArrays(
             FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L), FBUtilities.toByteArray(9L),
             FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(8L),
             FBUtilities.toByteArray(2), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(7L)
-            ))));
+            ), icc)));
 
     	assertNotNull(sc.getSubColumn(getBytes(1)));
     	assertNull(sc.getSubColumn(getBytes(3)));
@@ -69,7 +72,7 @@ public class SuperColumnTest
 
         // column: 1
         assert 0 == FBUtilities.compareByteArrays(
-            ((IncrementCounterClock)sc.getSubColumn(getBytes(1)).clock()).context(),
+            ((CounterClock)sc.getSubColumn(getBytes(1)).clock()).context(),
             concatByteArrays(
                 FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(12L), FBUtilities.toByteArray(10L),
                 FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(6L),
@@ -80,7 +83,7 @@ public class SuperColumnTest
 
         // column: 2
         assert 0 == FBUtilities.compareByteArrays(
-            ((IncrementCounterClock)sc.getSubColumn(getBytes(2)).clock()).context(),
+            ((CounterClock)sc.getSubColumn(getBytes(2)).clock()).context(),
             concatByteArrays(
                 FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L), FBUtilities.toByteArray(9L),
                 FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(8L),
