@@ -204,7 +204,7 @@ public class IncrementCounterClockTest
         // 9:           62L       2L
         // 1:           128L      1L (note: take timestamp of dominant count)
 
-        byte[] merged = ((CounterClock)CounterClock.MIN_MIN_CLOCK.getSuperset(clocks)).context();
+        byte[] merged = ((CounterClock)CounterClock.MIN_INCR_CLOCK.getSuperset(clocks)).context();
 
         assert   7 == FBUtilities.byteArrayToInt(merged,  0*stepLength);
         assert  1L == FBUtilities.byteArrayToLong(merged, 0*stepLength + idLength);
