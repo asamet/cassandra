@@ -23,6 +23,10 @@ import org.apache.cassandra.auth.IAuthenticator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.context.AbstractReconciler;
+import org.apache.cassandra.db.context.AbstractCounterContext;
+import org.apache.cassandra.db.context.IncrementCounterContext;
+import org.apache.cassandra.db.context.MaxCounterContext;
+import org.apache.cassandra.db.context.MinCounterContext;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -1256,6 +1260,25 @@ public class DatabaseDescriptor
         if (cfmd == null)
             throw new NullPointerException("Unknown ColumnFamily " + cfName + " in keyspace " + tableName);
         return cfmd.reconciler;
+    }
+
+    public static AbstractCounterContext getCounterContext(ColumnType columnType)
+    {
+        assert columnType.isCounter();
+
+        if (columnType.isIncrementCounter())
+        {
+            return IncrementCounterContext.instance();
+        }
+        else if (columnType.isMinCounter())
+        {
+            return MinCounterContext.instance();
+        }
+        else if (columnType.isMaxCounter())
+        {
+            return MaxCounterContext.instance();
+        }
+        throw new RuntimeException("getCounterContext called for an unknown counter type: " + columnType);
     }
 
     /**

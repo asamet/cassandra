@@ -368,18 +368,7 @@ public class RowMutation
             return new TimestampClock(clock.getTimestamp());
         }
 
-        AbstractCounterContext contextManager = null;
-        assert cfType.isContext();
-        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
-        if (cfType.isIncrementCounter()) {
-          contextManager = IncrementCounterContext.instance();
-        } else if (cfType.isMinCounter()) {
-          contextManager = MinCounterContext.instance();
-        } else if (cfType.isMaxCounter()) {
-          contextManager = MaxCounterContext.instance();
-        } else {
-          assert false; // TODO(asamet) - Needs a good message.
-        }
+        AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
 
 //TODO: MODIFY: assume CounterClock, for now
         return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
@@ -393,18 +382,7 @@ public class RowMutation
             return new TimestampClock(clock.getTimestamp());
         }
 
-        AbstractCounterContext contextManager = null;
-        assert cfType.isContext();
-        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
-        if (cfType.isIncrementCounter()) {
-          contextManager = IncrementCounterContext.instance();
-        } else if (cfType.isMinCounter()) {
-          contextManager = MinCounterContext.instance();
-        } else if (cfType.isMaxCounter()) {
-          contextManager = MaxCounterContext.instance();
-        } else {
-          assert false; // TODO(asamet) - Needs a good message.
-        }
+        AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
         IClock cassandra_clock = new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
         try
         {

@@ -368,18 +368,7 @@ public class ThriftValidation
         }
 
         ColumnType cfType = DatabaseDescriptor.getColumnType(table, column_path.getColumn_family());
-        AbstractCounterContext contextManager = null;
-        assert cfType.isContext();
-        // TODO(asamet) - Move this to a utility function in DatabaseDescriptor
-        if (cfType.isIncrementCounter()) {
-          contextManager = IncrementCounterContext.instance();
-        } else if (cfType.isMinCounter()) {
-          contextManager = MinCounterContext.instance();
-        } else if (cfType.isMaxCounter()) {
-          contextManager = MaxCounterContext.instance();
-        } else {
-          assert false; // TODO(asamet) - Needs a good message.
-        }
+        AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
 
         return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
     }
