@@ -189,8 +189,6 @@ public class StorageProxy implements StorageProxyMBean
 
     public static void mutateBlocking(List<RowMutation> mutations, ConsistencyLevel consistency_level) throws UnavailableException, TimeoutException
     {
-//TODO: REMOVE
-System.out.println("StorageProxy : mutateBlocking(): START w/ CL.ONE? " + (ConsistencyLevel.ONE == consistency_level));
         long startTime = System.nanoTime();
         ArrayList<WriteResponseHandler> responseHandlers = new ArrayList<WriteResponseHandler>();
 
@@ -261,9 +259,6 @@ System.out.println("StorageProxy : mutateBlocking(): START w/ CL.ONE? " + (Consi
                 {
                     InetAddress destination = entry.getKey();
                     Collection<InetAddress> targets = entry.getValue();
-
-//TODO: REMOVE
-System.out.println("StorageProxy : mutateBlocking(): 0: destination: " + destination);
 
                     if (targets.size() == 1 && targets.iterator().next().equals(destination))
                     {

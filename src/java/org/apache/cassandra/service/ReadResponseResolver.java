@@ -136,16 +136,7 @@ originals.add(result.row().cf);
             }
         }
 
-//TODO: REMOVE
-for (int i = 0; i < versions.size(); i++)
-{
-System.out.println("                    RRR: 1: [" + endPoints.get(i) + "]: " + originals.get(i) + " => " + versions.get(i));
-}
-
         ColumnFamily resolved = resolveSuperset(versions);
-
-//TODO: REMOVE
-System.out.println("                    RRR: 2: " + resolved);
 
         maybeScheduleRepairs(resolved, table, key, versions, endPoints);
 
@@ -165,11 +156,9 @@ System.out.println("                    RRR: 2: " + resolved);
         {
             ColumnFamily diffCf = ColumnFamily.diff(versions.get(i), resolved);
             if (null == diffCf) // no repair needs to happen
-{
-//TODO: REMOVE
-System.out.println("                    RRR: 3A: [" + endPoints.get(i) + "]: " + diffCf);
-                continue;
-}
+            {
+               continue;
+            }
 
             // create and send the row mutation message based on the diff
             RowMutation rowMutation = new RowMutation(table, key);
@@ -185,7 +174,6 @@ ColumnFamily origDiffCf = diffCf.cloneMe();
                     continue;
             }
 //TODO: REMOVE
-System.out.println("                    RRR: 3B: [" + endPoints.get(i) + "]: " + origDiffCf + " => " + diffCf);
             rowMutation.add(diffCf);
             RowMutationMessage rowMutationMessage = new RowMutationMessage(rowMutation);
             ReadRepairManager.instance.schedule(endPoints.get(i), rowMutationMessage);
