@@ -219,12 +219,18 @@ public class StorageProxy implements StorageProxyMBean
                 ColumnType columnType = DatabaseDescriptor.getColumnType(rm.getTable(), rm.columnFamilyNames().iterator().next());
                 if (columnType.isContext())
                 {
+                    List<InetAddress> liveEndpoints = ss.getLiveNaturalEndpoints(table, rm.key());
+                    if (liveEndpoints.isEmpty()) {
+                      throw new UnavailableException();
+                    }
+
                     // NOTE: only CL.ONE supported AND only one server can be written to
                     assert ConsistencyLevel.ONE == consistency_level : "Context-based CFs only support ConsistencyLevel.ONE!!!";
-                    Random generator = new Random();
-                    Set<InetAddress> destinationSet = hintedEndpoints.keySet();
+
+                    InetAddress firstDestination = liveEndpoints.get(0);
+
                     // local write
-                    if (destinationSet.contains(FBUtilities.getLocalAddress()))
+                    if (firstDestination.equals(FBUtilities.getLocalAddress()))
                     {
 //TODO: MODIFY: RM.updateClocks() that updates specific node endpoint (local)
                         rm.updateClocks(FBUtilities.getLocalAddress());
@@ -232,14 +238,10 @@ public class StorageProxy implements StorageProxyMBean
                         continue;
                     }
 
-                    // remote write
-                    InetAddress[] destinations = destinationSet.toArray(new InetAddress[0]);
-                    InetAddress randomDestination = destinations[generator.nextInt(destinations.length)];
-//TODO: MODIFY: RM.updateClocks() that updates specific node endpoint (not local)
-                    rm.updateClocks(randomDestination);
+                    //remote write
 
-                    Collection<InetAddress> targets = hintedEndpoints.asMap().get(randomDestination);
-                    assert (targets.size() != 1 || !targets.iterator().next().equals(randomDestination)) : "Context-based CFs do not support Hinted Hand-off.";
+//TODO: MODIFY: RM.updateClocks() that updates specific node endpoint (not local)
+                    rm.updateClocks(firstDestination);
 
                     // belongs on a different server.  send it there.
                     if (unhintedMessage == null)
@@ -248,9 +250,9 @@ public class StorageProxy implements StorageProxyMBean
                         MessagingService.instance.addCallback(responseHandler, unhintedMessage.getMessageId());
                     }
                     if (logger.isDebugEnabled())
-                        logger.debug("insert writing key " + rm.key() + " to " + unhintedMessage.getMessageId() + "@" + randomDestination);
+                        logger.debug("insert writing key " + rm.key() + " to " + unhintedMessage.getMessageId() + "@" + firstDestination);
 //TODO: MODIFY: add support for ResponseHandler? (iterate through other destinations on failure?)
-                    MessagingService.instance.sendOneWay(unhintedMessage, randomDestination);
+                    MessagingService.instance.sendOneWay(unhintedMessage, firstDestination);
 
                     continue;
                 }
@@ -395,14 +397,30 @@ public class StorageProxy implements StorageProxyMBean
 
         for (ReadCommand command: commands)
         {
-            InetAddress endPoint = StorageService.instance.findSuitableEndPoint(command.table, command.key);
+            ColumnType cfType = DatabaseDescriptor.getColumnFamilyType(command.table, command.queryPath.columnFamilyName);
+            InetAddress endpoint = null;
+            if (cfType.isContext())
+            {
+                List<InetAddress> liveEndpoints = StorageService.instance.getLiveNaturalEndpoints(command.table, command.key);
+                if (liveEndpoints.isEmpty())
+                {
+                    throw new UnavailableException();
+                }
+                // For context types, we always want to try and read from the first node in the ring.
+                endpoint = liveEndpoints.get(0);
+
+            }
+            else
+            {
+                endpoint = StorageService.instance.findSuitableEndPoint(command.table, command.key);
+            }
             Message message = command.makeReadMessage();
 
             if (logger.isDebugEnabled())
-                logger.debug("weakreadremote reading " + command + " from " + message.getMessageId() + "@" + endPoint);
+                logger.debug("weakreadremote reading " + command + " from " + message.getMessageId() + "@" + endpoint);
             if (DatabaseDescriptor.getConsistencyCheck())
                 message.setHeader(ReadCommand.DO_REPAIR, ReadCommand.DO_REPAIR.getBytes());
-            iars.add(MessagingService.instance.sendRR(message, endPoint));
+            iars.add(MessagingService.instance.sendRR(message, endpoint));
         }
 
         for (IAsyncResult iar: iars)
@@ -435,8 +453,19 @@ public class StorageProxy implements StorageProxyMBean
 
             for (ReadCommand command: commands)
             {
-                List<InetAddress> endpoints = StorageService.instance.getNaturalEndpoints(command.table, command.key);
-                boolean foundLocal = endpoints.contains(FBUtilities.getLocalAddress());
+                List<InetAddress> endpoints = StorageService.instance.getLiveNaturalEndpoints(command.table, command.key);
+                Boolean foundLocal = null;
+                ColumnType cfType = DatabaseDescriptor.getColumnFamilyType(command.table, command.queryPath.columnFamilyName);
+                if (cfType.isContext())
+                {
+                    if (endpoints.size() < 1)
+                    {
+                        throw new UnavailableException();
+                    }
+                    foundLocal = endpoints.get(0).equals(FBUtilities.getLocalAddress());
+                } else {
+                    foundLocal = endpoints.contains(FBUtilities.getLocalAddress());
+                }
                 //TODO: Throw InvalidRequest if we're in bootstrap mode?
                 if (foundLocal && !StorageService.instance.isBootstrapMode())
                 {
