@@ -379,5 +379,29 @@ public abstract class AbstractCounterContext implements IContext
     public abstract byte[] aggregateNodes(byte[] context);
 
     // remove the count for a given node id
-    public abstract byte[] cleanNodeCounts(byte[] context, InetAddress node);
+    public byte[] cleanNodeCounts(byte[] context, InetAddress node)
+    {
+        // calculate node id
+        byte[] nodeId = node.getAddress();
+
+        // look for this node id
+        for (int offset = 0; offset < context.length; offset += stepLength)
+        {
+            if (FBUtilities.compareByteSubArrays(context, offset, nodeId, 0, idLength) != 0)
+                continue;
+
+            // node id found: remove node count
+            byte[] truncatedContext = new byte[context.length - stepLength];
+            System.arraycopy(context, 0, truncatedContext, 0, offset);
+            System.arraycopy(
+                context,
+                offset + stepLength,
+                truncatedContext,
+                offset,
+                context.length - (offset + stepLength));
+            return truncatedContext;
+        }
+
+        return context;
+    }
 }
