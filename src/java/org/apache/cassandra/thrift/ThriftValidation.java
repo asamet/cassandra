@@ -370,6 +370,6 @@ public class ThriftValidation
         ColumnType cfType = DatabaseDescriptor.getColumnType(table, column_path.getColumn_family());
         AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
 
-        return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
+        return new CounterClock(FBUtilities.toByteArray(System.currentTimeMillis()), contextManager);
     }
 }

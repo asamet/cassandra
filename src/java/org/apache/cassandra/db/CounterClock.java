@@ -38,11 +38,11 @@ import org.apache.cassandra.utils.FBUtilities;
 public class CounterClock implements IClock
 {
     public static CounterClock MIN_INCR_CLOCK =
-        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, IncrementCounterContext.instance());
+        new CounterClock(FBUtilities.toByteArray(Long.MIN_VALUE), IncrementCounterContext.instance());
     public static CounterClock MIN_MIN_CLOCK =
-        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, MinCounterContext.instance());
+        new CounterClock(FBUtilities.toByteArray(Long.MIN_VALUE), MinCounterContext.instance());
     public static CounterClock MIN_MAX_CLOCK =
-        new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, MaxCounterContext.instance());
+        new CounterClock(FBUtilities.toByteArray(Long.MIN_VALUE), MaxCounterContext.instance());
 
     public static ICompactSerializer2<IClock> INCR_SERIALIZER =
         new CounterClockSerializer(IncrementCounterContext.instance());

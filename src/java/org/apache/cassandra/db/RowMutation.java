@@ -371,7 +371,7 @@ public class RowMutation
         AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
 
 //TODO: MODIFY: assume CounterClock, for now
-        return new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
+        return new CounterClock(FBUtilities.toByteArray(System.currentTimeMillis()), contextManager);
     }
 
 //TODO: REMOVE (temporary fix, until clock context structure modified)
@@ -383,7 +383,7 @@ public class RowMutation
         }
 
         AbstractCounterContext contextManager = DatabaseDescriptor.getCounterContext(cfType);
-        IClock cassandra_clock = new CounterClock(ArrayUtils.EMPTY_BYTE_ARRAY, contextManager);
+        IClock cassandra_clock = new CounterClock(FBUtilities.toByteArray(System.currentTimeMillis()), contextManager);
         try
         {
             ((CounterClock)cassandra_clock).update(InetAddress.getByAddress(new byte[4]), 0L);
