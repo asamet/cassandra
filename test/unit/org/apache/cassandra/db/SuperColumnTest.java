@@ -18,6 +18,9 @@
 */
 package org.apache.cassandra.db;
 
+//TODO: REMOVE
+import org.apache.commons.lang.ArrayUtils;
+
 import org.junit.Test;
 
 import static junit.framework.Assert.assertNotNull;
@@ -48,22 +51,25 @@ public class SuperColumnTest
     	SuperColumn sc = new SuperColumn("sc1".getBytes(), new LongType(), ColumnType.SuperIncrementCounter, new IncrementCounterReconciler());
 
     	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new CounterClock(concatByteArrays(
-            FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(2L),
-            FBUtilities.toByteArray(1), FBUtilities.toByteArray(7L), FBUtilities.toByteArray(3L),
-            FBUtilities.toByteArray(2), FBUtilities.toByteArray(5L), FBUtilities.toByteArray(2L),
-            FBUtilities.toByteArray(4), FBUtilities.toByteArray(2L), FBUtilities.toByteArray(1L)
+            FBUtilities.toByteArray(3L),
+            FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(3L),
+            FBUtilities.toByteArray(1), FBUtilities.toByteArray(7L),
+            FBUtilities.toByteArray(2), FBUtilities.toByteArray(5L),
+            FBUtilities.toByteArray(4), FBUtilities.toByteArray(2L)
             ), icc)));
     	sc.addColumn(new Column(getBytes(1), "value".getBytes(), new CounterClock(concatByteArrays(
-            FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(10L),
-            FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(6L),
-            FBUtilities.toByteArray(4), FBUtilities.toByteArray(4L), FBUtilities.toByteArray(5L),
-            FBUtilities.toByteArray(2), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(4L)
+            FBUtilities.toByteArray(10L),
+            FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(9L),
+            FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L),
+            FBUtilities.toByteArray(4), FBUtilities.toByteArray(4L),
+            FBUtilities.toByteArray(2), FBUtilities.toByteArray(3L)
             ), icc)));
 
     	sc.addColumn(new Column(getBytes(2), "value".getBytes(), new CounterClock(concatByteArrays(
-            FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L), FBUtilities.toByteArray(9L),
-            FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(8L),
-            FBUtilities.toByteArray(2), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(7L)
+            FBUtilities.toByteArray(9L),
+            FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L),
+            FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L),
+            FBUtilities.toByteArray(2), FBUtilities.toByteArray(1L)
             ), icc)));
 
     	assertNotNull(sc.getSubColumn(getBytes(1)));
@@ -74,20 +80,22 @@ public class SuperColumnTest
         assert 0 == FBUtilities.compareByteArrays(
             ((CounterClock)sc.getSubColumn(getBytes(1)).clock()).context(),
             concatByteArrays(
-                FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(12L), FBUtilities.toByteArray(10L),
-                FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L), FBUtilities.toByteArray(6L),
-                FBUtilities.toByteArray(4), FBUtilities.toByteArray(4L), FBUtilities.toByteArray(5L),
-                FBUtilities.toByteArray(1), FBUtilities.toByteArray(7L), FBUtilities.toByteArray(3L),
-                FBUtilities.toByteArray(2), FBUtilities.toByteArray(5L), FBUtilities.toByteArray(2L)
+                FBUtilities.toByteArray(10L),
+                FBUtilities.getLocalAddress().getAddress(), FBUtilities.toByteArray(12L),
+                FBUtilities.toByteArray(8), FBUtilities.toByteArray(9L),
+                FBUtilities.toByteArray(1), FBUtilities.toByteArray(7L),
+                FBUtilities.toByteArray(2), FBUtilities.toByteArray(5L),
+                FBUtilities.toByteArray(4), FBUtilities.toByteArray(4L)
                 ));
 
         // column: 2
         assert 0 == FBUtilities.compareByteArrays(
             ((CounterClock)sc.getSubColumn(getBytes(2)).clock()).context(),
             concatByteArrays(
-                FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L), FBUtilities.toByteArray(9L),
-                FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L), FBUtilities.toByteArray(8L),
-                FBUtilities.toByteArray(2), FBUtilities.toByteArray(1L), FBUtilities.toByteArray(7L)
+                FBUtilities.toByteArray(9L),
+                FBUtilities.toByteArray(3), FBUtilities.toByteArray(6L),
+                FBUtilities.toByteArray(7), FBUtilities.toByteArray(3L),
+                FBUtilities.toByteArray(2), FBUtilities.toByteArray(1L)
                 ));
 
     	assertNotNull(sc.getSubColumn(getBytes(1)));

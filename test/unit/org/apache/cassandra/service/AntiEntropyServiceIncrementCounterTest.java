@@ -12,7 +12,6 @@ public class AntiEntropyServiceIncrementCounterTest extends AntiEntropyServiceTe
     {
         tablename = "Keyspace4";
         cfname = "IncrementCounter1";
-        clock = new CounterClock(new byte[] {}, IncrementCounterContext.instance());
-    }
-    
+        clock = new CounterClock(IncrementCounterContext.instance());
+    } 
 }

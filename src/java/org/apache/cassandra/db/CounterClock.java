@@ -54,6 +54,12 @@ public class CounterClock implements IClock
     public byte[] context;
     public AbstractCounterContext contextManager;
 
+    public CounterClock(AbstractCounterContext contextManager)
+    {
+        this.context = contextManager.create();
+        this.contextManager = contextManager;
+    }
+
     public CounterClock(byte[] context, AbstractCounterContext contextManager)
     {
         this.context = context;
