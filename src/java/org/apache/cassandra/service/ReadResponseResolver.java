@@ -168,6 +168,8 @@ ColumnFamily origDiffCf = diffCf.cloneMe();
             if (diffCf.getColumnType().isCounter())
             {
                 diffCf.cleanForCounter(endPoints.get(i));
+                if (diffCf.getColumnsMap().isEmpty() && !diffCf.isMarkedForDelete())
+                    continue;
             }
 //TODO: REMOVE
             rowMutation.add(diffCf);
