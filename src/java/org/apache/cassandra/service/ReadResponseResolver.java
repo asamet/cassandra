@@ -170,7 +170,7 @@ ColumnFamily origDiffCf = diffCf.cloneMe();
                 diffCf.cleanForCounter(endPoints.get(i));
                 // same check as ColumnFamily.diff()
 //TODO: MODIFY: the check in ColumnFamilyStore.removeDeleted() appears better
-                if (diffCf.getColumnsMap().isEmpty() || !diffCf.isMarkedForDelete())
+                if (diffCf.getColumnsMap().isEmpty() || diffCf.isMarkedForDelete())
                     continue;
             }
 //TODO: REMOVE
