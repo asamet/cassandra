@@ -355,6 +355,13 @@ public class StorageProxy implements StorageProxyMBean
             {
                 rm.apply();
                 responseHandler.localResponse();
+
+                // repair-on-write (local message)
+                if (DatabaseDescriptor.getCounterRepairOnWrite()) 
+                {  
+                    RepairOnWriteTask repairOnWriteTask = new RepairOnWriteTask(rm);
+                    StageManager.getStage(StageManager.REPAIR_ON_WRITE_STAGE).execute(repairOnWriteTask);
+                }
             }
         };
         StageManager.getStage(StageManager.MUTATION_STAGE).execute(runnable);

@@ -115,6 +115,8 @@ public class DatabaseDescriptor
      * high throughput on reads but at the cost of consistency.
     */
     private static boolean doConsistencyCheck = true;
+    /* Whether a write on repair should be done for counter column families. */
+    private static boolean doCounterRepairOnWrite = true;
     /* Job Jar Location */
     private static String jobJarFileLocation;
     /* Address where to run the job tracker */
@@ -438,6 +440,11 @@ public class DatabaseDescriptor
             String doConsistency = xmlUtils.getNodeValue("/Storage/DoConsistencyChecksBoolean");
             if ( doConsistency != null )
                 doConsistencyCheck = Boolean.parseBoolean(doConsistency);
+
+            /* Whether a write on repair should be done for counter column families. */
+            String counterRepairOnWrite = xmlUtils.getNodeValue("/Storage/DoCounterRepairOnWrite");
+            if ( counterRepairOnWrite != null )
+                doCounterRepairOnWrite = Boolean.parseBoolean(counterRepairOnWrite);
 
             /* read the size at which we should do column indexes */
             String columnIndexSize = xmlUtils.getNodeValue("/Storage/ColumnIndexSizeInKB");
@@ -1030,6 +1037,11 @@ public class DatabaseDescriptor
     public static boolean getConsistencyCheck()
     {
       return doConsistencyCheck;
+    }
+
+    public static boolean getCounterRepairOnWrite()
+    {
+        return doCounterRepairOnWrite;
     }
 
     public static String getClusterName()

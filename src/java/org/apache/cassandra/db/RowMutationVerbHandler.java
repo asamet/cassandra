@@ -28,6 +28,7 @@ import org.apache.cassandra.net.Message;
 
 import org.apache.log4j.Logger;
 
+import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -72,6 +73,10 @@ public class RowMutationVerbHandler implements IVerbHandler
             if (logger_.isDebugEnabled())
               logger_.debug(rm + " applied.  Sending response to " + message.getMessageId() + "@" + message.getFrom());
             MessagingService.instance.sendOneWay(responseMessage, message.getFrom());
+
+            // repair-on-write (remote message)
+            RepairOnWriteTask repairOnWriteTask = new RepairOnWriteTask(rm);
+            StageManager.getStage(StageManager.REPAIR_ON_WRITE_STAGE).execute(repairOnWriteTask);
         }
         catch (IOException e)
         {

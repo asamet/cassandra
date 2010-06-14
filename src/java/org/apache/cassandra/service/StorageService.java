@@ -91,6 +91,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         BINARY,
         READ_REPAIR,
         READ,
+        REPAIR_ON_WRITE,
         READ_RESPONSE,
         STREAM_INITIATE,
         STREAM_INITIATE_DONE,
@@ -210,6 +211,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         MessagingService.instance.registerVerbHandlers(Verb.MUTATION, new RowMutationVerbHandler());
         MessagingService.instance.registerVerbHandlers(Verb.READ_REPAIR, new ReadRepairVerbHandler());
         MessagingService.instance.registerVerbHandlers(Verb.READ, new ReadVerbHandler());
+        MessagingService.instance.registerVerbHandlers(Verb.REPAIR_ON_WRITE, new RepairOnWriteVerbHandler());
         MessagingService.instance.registerVerbHandlers(Verb.RANGE_SLICE, new RangeSliceVerbHandler());
         // see BootStrapper for a summary of how the bootstrap verbs interact
         MessagingService.instance.registerVerbHandlers(Verb.BOOTSTRAP_TOKEN, new BootStrapper.BootstrapTokenVerbHandler());
