@@ -256,6 +256,18 @@ public class ColumnFamily implements IColumnContainer
 //TODO: MODIFY: support SuperColumn-type CF
         for (IColumn column : getSortedColumns())
         {
+            if (column instanceof SuperColumn)
+            {
+                for (IColumn subColumn : ((SuperColumn)column).getSubColumns())
+                {
+                    CounterClock subClock = (CounterClock)subColumn.clock();
+                    subClock.cleanNodeCounts(node);
+                    if (0 == subClock.context().length)
+                    {
+                        ((SuperColumn)column).remove(subColumn.name()); 
+                    }
+                }
+            }
             CounterClock clock = (CounterClock)column.clock();
             clock.cleanNodeCounts(node);
             if (0 == clock.context().length)
