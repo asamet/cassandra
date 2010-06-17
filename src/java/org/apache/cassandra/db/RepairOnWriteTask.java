@@ -83,21 +83,33 @@ public class RepairOnWriteTask implements Runnable
 
         try
         {
+            // send repair to non-local replicas
+            List<InetAddress> foreignReplicas = StorageService.instance.getLiveNaturalEndpoints(
+                mutation.getTable(),
+                mutation.key()
+                );
+            foreignReplicas.remove(FBUtilities.getLocalAddress()); // remove local replica
+
+
             // create a repair RowMutation
             RowMutation repairRowMutation = new RowMutation(mutation.getTable(), mutation.key());
             for (ReadCommand readCommand : readCommands)
             {
                 Table table = Table.open(readCommand.table);
                 Row row = readCommand.getRow(table);
+                /*
+                 * Clean out contexts for all nodes we're sending the repair to, otherwise we
+                 * could send a context which is local to one of the foreign replicas, which
+                 * would then add incorrectly add that to its own count, because local resolution
+                 * sums.
+                 */
+                for (InetAddress foreignNode : foreignReplicas)
+                {
+                  row.cf.cleanForCounter(foreignNode);
+                }
+                // For every node we're sending a repair to, clean its counts out.
                 repairRowMutation.add(row.cf);
             }
-
-            // send repair to non-local replicas
-            List<InetAddress> foreignReplicas = StorageService.instance.getLiveNaturalEndpoints(
-                repairRowMutation.getTable(),
-                repairRowMutation.key()
-                );
-            foreignReplicas.remove(FBUtilities.getLocalAddress()); // remove local replica
 
             for (InetAddress foreignReplica : foreignReplicas)
             {
