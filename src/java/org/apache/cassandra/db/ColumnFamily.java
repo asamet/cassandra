@@ -267,6 +267,7 @@ public class ColumnFamily implements IColumnContainer
                         ((SuperColumn)column).remove(subColumn.name()); 
                     }
                 }
+                continue;
             }
             CounterClock clock = (CounterClock)column.clock();
             clock.cleanNodeCounts(node);
