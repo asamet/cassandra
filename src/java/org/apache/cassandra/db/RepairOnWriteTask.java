@@ -107,7 +107,6 @@ public class RepairOnWriteTask implements Runnable
                 {
                   row.cf.cleanForCounter(foreignNode);
                 }
-                // For every node we're sending a repair to, clean its counts out.
                 repairRowMutation.add(row.cf);
             }
 
