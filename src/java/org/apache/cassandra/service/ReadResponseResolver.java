@@ -73,9 +73,6 @@ public class ReadResponseResolver implements IResponseResolver<Row>
 		byte[] digest = new byte[0];
 		boolean isDigestQuery = false;
         
-//TODO: REMOVE
-List<ColumnFamily> originals = new ArrayList<ColumnFamily>();
-
         /*
 		 * Populate the list of rows from each of the messages
 		 * Check to see if there is a digest query. If a digest 
@@ -83,7 +80,7 @@ List<ColumnFamily> originals = new ArrayList<ColumnFamily>();
          * the digest of the data that is received.
         */
 		for (Message response : responses)
-		{					            
+		{
             byte[] body = response.getMessageBody();
             ByteArrayInputStream bufIn = new ByteArrayInputStream(body);
             ReadResponse result = ReadResponse.serializer().deserialize(new DataInputStream(bufIn));
@@ -110,12 +107,11 @@ List<ColumnFamily> originals = new ArrayList<ColumnFamily>();
                 if (!FBUtilities.getLocalAddress().equals(response.getFrom()) &&
                     cf != null && cf.getColumnType().isCounter())
                 {
-                    cf = cf.cloneMe();
+                    cf = cf.cloneForCounter();
                     cf.cleanForCounter();
                 }
 //                versions.add(result.row().cf);
 //TODO: REMOVE
-originals.add(result.row().cf);
                 versions.add(cf);
                 endPoints.add(response.getFrom());
                 key = result.row().key;
@@ -136,7 +132,12 @@ originals.add(result.row().cf);
             }
         }
 
-        ColumnFamily resolved = resolveSuperset(versions);
+        List<ColumnFamily> versionsCopy = new ArrayList<ColumnFamily>();
+        for (ColumnFamily cfToCopy : versions)
+        {
+            versionsCopy.add(cfToCopy.cloneForCounter());
+        }
+        ColumnFamily resolved = resolveSuperset(versionsCopy);
 
         maybeScheduleRepairs(resolved, table, key, versions, endPoints);
 

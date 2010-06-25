@@ -103,6 +103,24 @@ public class ColumnFamily implements IColumnContainer
     	return cf;
     }
 
+    public ColumnFamily cloneForCounter()
+    {
+        if (this.isSuper() && type_.isCounter())
+        {
+            ConcurrentSkipListMap<byte[], IColumn> newColumns = new ConcurrentSkipListMap<byte[], IColumn>(columns_.comparator());
+            ColumnFamily cf = cloneMeShallow();
+            for (byte[] colName : columns_.keySet())
+            {
+                SuperColumn scToCopy = (SuperColumn) columns_.get(colName);
+                newColumns.put(colName, scToCopy.cloneMe());
+            }
+            cf.columns_ = newColumns;
+            return cf;
+        }
+
+        return cloneMe();
+    }
+
     public String name()
     {
         return name_;
@@ -357,18 +375,18 @@ public class ColumnFamily implements IColumnContainer
             {
 //TODO: TEST
 //                IColumn columnDiff = columnInternal.diff(columnExternal);
-                IColumn columnDiff = type_.isIncrementCounter() ? columnInternal.diffForCounter(columnExternal) : columnInternal.diff(columnExternal);
+                IColumn columnDiff = type_.isCounter() ? columnInternal.diffForCounter(columnExternal) : columnInternal.diff(columnExternal);
                 if (columnDiff != null)
-                {
+                { 
                     cfDiff.addColumn(columnDiff);
                 }
             }
         }
 
         if (!cfDiff.getColumnsMap().isEmpty() || cfDiff.isMarkedForDelete())
-        	return cfDiff;
+        	  return cfDiff;
         else
-        	return null;
+            return null;
     }
 
     public AbstractType getComparator()
