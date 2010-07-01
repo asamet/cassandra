@@ -135,7 +135,12 @@ public class ReadResponseResolver implements IResponseResolver<Row>
         List<ColumnFamily> versionsCopy = new ArrayList<ColumnFamily>();
         for (ColumnFamily cfToCopy : versions)
         {
-            versionsCopy.add(cfToCopy.cloneForCounter());
+            ColumnFamily newCf = null;
+            if (cfToCopy != null)
+            {
+                newCf = cfToCopy.cloneForCounter();
+            }
+            versionsCopy.add(newCf);
         }
         ColumnFamily resolved = resolveSuperset(versionsCopy);
 
