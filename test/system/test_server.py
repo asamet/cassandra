@@ -171,6 +171,22 @@ def _expect_exception(fn, type_):
 def _expect_missing(fn):
     _expect_exception(fn, NotFoundException)
 
+def waitfor(secs, fn, *args, **kwargs):
+    start = time.time()
+    success = False
+    last_exception = None
+    while not success and time.time() < start + secs:
+        try:
+            fn(*args, **kwargs)
+            success = True
+        except KeyboardInterrupt:
+            raise
+        except Exception, e:
+            last_exception = e
+            pass
+    if not success and last_exception:
+        raise last_exception
+
 
 class TestMutations(CassandraTester):
     def test_insert(self):
@@ -359,6 +375,23 @@ class TestMutations(CassandraTester):
                 for key in keys:
                     _assert_no_columnpath('Keyspace1', key, ColumnPath(column_family, column=c.name))
 
+    def test_batch_mutate_remove_standard_row(self):
+        column_families = ['Standard1', 'Standard2']
+        keys = ['key_%d' % i for i in range(11,21)]
+        _insert_multi(keys)
+
+        mutations = [Mutation(deletion=Deletion(20))]
+        mutation_map = dict((column_family, mutations) for column_family in column_families)
+
+        keyed_mutations = dict((key, mutation_map) for key in keys)
+
+        client.batch_mutate('Keyspace1', keyed_mutations, ConsistencyLevel.ONE)
+
+        for column_family in column_families:
+            for c in _SIMPLE_COLUMNS:
+                for key in keys:
+                    _assert_no_columnpath('Keyspace1', key, ColumnPath(column_family, column=c.name))
+
     def test_batch_mutate_remove_super_columns_with_standard_under(self):
         column_families = ['Super1', 'Super2']
         keys = ['key_%d' % i for i in range(11,21)]
@@ -411,6 +444,31 @@ class TestMutations(CassandraTester):
             for c in sc.columns:
                 for key in keys:
                     _assert_no_columnpath('Keyspace1', key, ColumnPath('Super1', super_column=sc.name))
+
+    def test_batch_mutate_remove_super_columns_entire_row(self):
+        keys = ['key_%d' % i for i in range(17,21)]
+
+        for key in keys:
+            _insert_super(key)
+
+        mutations = []
+
+        mutations.append(Mutation(deletion=Deletion(20)))
+
+        mutation_map = {'Super1': mutations}
+
+        keyed_mutations = dict((key, mutation_map) for key in keys)
+
+        # Sanity check
+        for sc in _SUPER_COLUMNS:
+            for key in keys:
+                _assert_columnpath_exists('Keyspace1', key, ColumnPath('Super1', super_column=sc.name))
+
+        client.batch_mutate('Keyspace1', keyed_mutations, ConsistencyLevel.ZERO)
+
+        for sc in _SUPER_COLUMNS:
+          for key in keys:
+            waitfor(5, _assert_no_columnpath, 'Keyspace1', key, ColumnPath('Super1', super_column=sc.name))
 
     def test_batch_mutate_insertions_and_deletions(self):
         first_insert = SuperColumn("sc1",
@@ -549,6 +607,12 @@ class TestMutations(CassandraTester):
                           InvalidRequestException)
         # start > finish, key version
         _expect_exception(lambda: client.get_range_slice('Keyspace1', ColumnParent('Standard1'), SlicePredicate(column_names=['']), 'z', 'a', 1, ConsistencyLevel.ONE), InvalidRequestException)
+        # don't allow super_column in Deletion for standard ColumnFamily
+        deletion = Deletion(1, 'supercolumn', None)
+        mutation = Mutation(deletion=deletion)
+        mutations = { 'key' : { 'Standard1' : [ mutation ] } }
+        _expect_exception(lambda: client.batch_mutate("Keyspace1", mutations, ConsistencyLevel.QUORUM),
+                          InvalidRequestException)
 
     def test_batch_insert_super(self):
          cfmap = {'Super1': [ColumnOrSuperColumn(super_column=c) for c in _SUPER_COLUMNS],
@@ -849,6 +913,26 @@ class TestMutations(CassandraTester):
         assert result[1].columns[0].column.name == 'col1'
         
     
+    def test_wrapped_range_slices(self):
+        def copp_token(key):
+            # I cheated and generated this from Java
+            return {'a': '00530000000100000001', 
+                    'b': '00540000000100000001', 
+                    'c': '00550000000100000001',
+                    'd': '00560000000100000001', 
+                    'e': '00580000000100000001'}[key]
+        for key in ['a', 'b', 'c', 'd', 'e']:
+            for cname in ['col1', 'col2', 'col3', 'col4', 'col5']:
+                client.insert('Keyspace1', key, ColumnPath('Standard1', column=cname), 'v-' + cname, 0, ConsistencyLevel.ONE)
+        cp = ColumnParent('Standard1')
+
+        result = client.get_range_slices("Keyspace1", cp, SlicePredicate(column_names=['col1', 'col3']), KeyRange(start_token=copp_token('e'), end_token=copp_token('e')), ConsistencyLevel.ONE)
+        assert [row.key for row in result] == ['a', 'b', 'c', 'd', 'e',], [row.key for row in result]
+
+        result = client.get_range_slices("Keyspace1", cp, SlicePredicate(column_names=['col1', 'col3']), KeyRange(start_token=copp_token('c'), end_token=copp_token('c')), ConsistencyLevel.ONE)
+        assert [row.key for row in result] == ['d', 'e', 'a', 'b', 'c',], [row.key for row in result]
+        
+
     def test_get_slice_by_names(self):
         _insert_range()
         p = SlicePredicate(column_names=['c1', 'c2'])
@@ -1016,3 +1100,8 @@ class TestMutations(CassandraTester):
         client.remove('Keyspace1', 'key1', ColumnPath('SuperIncrementCounter1', 'sc1'), Clock(), ConsistencyLevel.ONE)
         time.sleep(0.1)
         _assert_no_columnpath('Keyspace1', 'key1', ColumnPath('SuperIncrementCounter1', 'sc1', 'c1'))
+
+    def test_describe_ring_on_invalid_keyspace(self):
+        def req():
+            client.describe_ring('system')
+        _expect_exception(req, InvalidRequestException)

@@ -25,11 +25,12 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
 import com.google.common.collect.AbstractIterator;
-import org.apache.cassandra.config.DatabaseDescriptor;
+
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.context.AbstractReconciler;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -37,14 +38,15 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.thrift.Column;
 import org.apache.cassandra.thrift.SuperColumn;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TSocket;
-import org.apache.thrift.transport.TTransportException;
 
 public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byte[], IColumn>>
 {
@@ -56,8 +58,13 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
     private int batchRowCount; // fetch this many per batch
     private String cfName;
     private String keyspace;
+    private Configuration conf;
 
-    public void close() {}
+    public void close() 
+    {
+        if (iter != null)
+            iter.close();
+    }
     
     public String getCurrentKey()
     {
@@ -78,7 +85,7 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
     public void initialize(InputSplit split, TaskAttemptContext context) throws IOException
     {
         this.split = (ColumnFamilySplit) split;
-        Configuration conf = context.getConfiguration();
+        conf = context.getConfiguration();
         predicate = ConfigHelper.getSlicePredicate(conf);
         totalRowCount = ConfigHelper.getInputSplitSize(conf);
         batchRowCount = ConfigHelper.getRangeBatchSize(conf);
@@ -97,12 +104,39 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
 
     private class RowIterator extends AbstractIterator<Pair<String, SortedMap<byte[], IColumn>>>
     {
-
         private List<KeySlice> rows;
         private String startToken;
         private int totalRead = 0;
         private int i = 0;
-        private AbstractType comparator = DatabaseDescriptor.getComparator(keyspace, cfName);
+        private final AbstractType comparator;
+        private final AbstractType subComparator;
+        private final IPartitioner partitioner;
+        private TSocket socket;
+        private Cassandra.Client client;
+
+        private RowIterator()
+        {
+            socket = new TSocket(getLocation(), ConfigHelper.getThriftPort(conf));
+            TBinaryProtocol binaryProtocol = new TBinaryProtocol(socket, false, false);
+            client = new Cassandra.Client(binaryProtocol);
+
+            try
+            {
+                socket.open();
+                partitioner = FBUtilities.newPartitioner(client.describe_partitioner());
+                Map<String, String> info = client.describe_keyspace(keyspace).get(cfName);
+                comparator = FBUtilities.getComparator(info.get("CompareWith"));
+                subComparator = FBUtilities.getComparator(info.get("CompareSubcolumnsWith"));
+            }
+            catch (TException e)
+            {
+                throw new RuntimeException("error communicating via Thrift", e);
+            }
+            catch (NotFoundException e)
+            {
+                throw new RuntimeException("server reports no such keyspace " + keyspace, e);
+            }
+        }
 
         private void maybeInit()
         {
@@ -112,18 +146,6 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
             
             if (rows != null)
                 return;
-            TSocket socket = new TSocket(getLocation(),
-                                         DatabaseDescriptor.getThriftPort());
-            TBinaryProtocol binaryProtocol = new TBinaryProtocol(socket, false, false);
-            Cassandra.Client client = new Cassandra.Client(binaryProtocol);
-            try
-            {
-                socket.open();
-            }
-            catch (TTransportException e)
-            {
-                throw new RuntimeException(e);
-            }
             
             if (startToken == null)
             {
@@ -158,8 +180,7 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
                 
                 // prepare for the next slice to be read
                 KeySlice lastRow = rows.get(rows.size() - 1);
-                IPartitioner p = DatabaseDescriptor.getPartitioner();
-                startToken = p.getTokenFactory().toString(p.getToken(lastRow.getKey()));
+                startToken = partitioner.getTokenFactory().toString(partitioner.getToken(lastRow.getKey()));
             }
             catch (Exception e)
             {
@@ -227,35 +248,37 @@ public class ColumnFamilyRecordReader extends RecordReader<String, SortedMap<byt
             }
             return new Pair<String, SortedMap<byte[], IColumn>>(ks.key, map);
         }
-    }
-
-    private IColumn unthriftify(ColumnOrSuperColumn cosc)
-    {
-        if (cosc.column == null)
-            return unthriftifySuper(cosc.super_column);
-        return unthriftifySimple(cosc.column);
-    }
-
-    private IColumn unthriftifySuper(SuperColumn super_column)
-    {
-        AbstractType subComparator = DatabaseDescriptor.getSubComparator(keyspace, cfName);
-//TODO: TEST
-//        org.apache.cassandra.db.SuperColumn sc = new org.apache.cassandra.db.SuperColumn(super_column.name, subComparator);
-        ColumnType columnType = DatabaseDescriptor.getColumnFamilyType(keyspace, cfName);
-        AbstractReconciler reconciler = DatabaseDescriptor.getReconciler(keyspace, cfName);
-        org.apache.cassandra.db.SuperColumn sc = new org.apache.cassandra.db.SuperColumn(super_column.name, subComparator, columnType, reconciler);
-        for (Column column : super_column.columns)
+        
+        public void close() 
         {
-            sc.addColumn(unthriftifySimple(column));
+            if (socket != null && socket.isOpen())
+            {
+                socket.close();
+            }
         }
-        return sc;
-    }
 
-    private IColumn unthriftifySimple(Column column)
-    {
-//TODO: MODIFY: create appropriate IClock impl
-//        return new org.apache.cassandra.db.Column(column.name, column.value, column.timestamp);
-        org.apache.cassandra.db.IClock clock = new org.apache.cassandra.db.TimestampClock(column.clock.timestamp);
-        return new org.apache.cassandra.db.Column(column.name, column.value, clock);
-    }
+        private IColumn unthriftify(ColumnOrSuperColumn cosc)
+        {
+            if (cosc.column == null)
+                return unthriftifySuper(cosc.super_column);
+            return unthriftifySimple(cosc.column);
+        }
+
+        private IColumn unthriftifySuper(SuperColumn super_column)
+        {
+            ColumnType columnType = DatabaseDescriptor.getColumnFamilyType(keyspace, cfName);
+            AbstractReconciler reconciler = DatabaseDescriptor.getReconciler(keyspace, cfName);
+            org.apache.cassandra.db.SuperColumn sc = new org.apache.cassandra.db.SuperColumn(super_column.name, subComparator, columnType, reconciler);
+            for (Column column : super_column.columns)
+            {
+                sc.addColumn(unthriftifySimple(column));
+            }
+            return sc;
+        }
+
+        private IColumn unthriftifySimple(Column column)
+        {
+            org.apache.cassandra.db.IClock clock = new org.apache.cassandra.db.TimestampClock(column.clock.timestamp);
+            return new org.apache.cassandra.db.Column(column.name, column.value, clock);
+        }
 }

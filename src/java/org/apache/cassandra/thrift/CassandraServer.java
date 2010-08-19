@@ -89,10 +89,6 @@ public class CassandraServer implements Cassandra.Iface
         {
             throw new InvalidRequestException("Consistency level zero may not be applied to read operations");
         }
-        if (consistency_level == ConsistencyLevel.ALL)
-        {
-            throw new InvalidRequestException("Consistency level all is not yet supported on read operations");
-        }
         if (consistency_level == ConsistencyLevel.ANY)
         {
             throw new InvalidRequestException("Consistency level any may not be applied to read operations");
@@ -656,16 +652,24 @@ public class CassandraServer implements Cassandra.Iface
         return Constants.VERSION;
     }
 
-    public List<TokenRange> describe_ring(String keyspace)
+    public List<TokenRange> describe_ring(String keyspace)throws InvalidRequestException
     {
+        if (!DatabaseDescriptor.getNonSystemTables().contains(keyspace))
+            throw new InvalidRequestException("There is no ring for the keyspace: " + keyspace);
         List<TokenRange> ranges = new ArrayList<TokenRange>();
+        Token.TokenFactory tf = StorageService.getPartitioner().getTokenFactory();
         for (Map.Entry<Range, List<String>> entry : StorageService.instance.getRangeToEndPointMap(keyspace).entrySet())
         {
             Range range = entry.getKey();
             List<String> endpoints = entry.getValue();
-            ranges.add(new TokenRange(range.left.toString(), range.right.toString(), endpoints));
+            ranges.add(new TokenRange(tf.toString(range.left), tf.toString(range.right), endpoints));
         }
         return ranges;
+    }
+
+    public String describe_partitioner() throws TException
+    {
+        return StorageService.getPartitioner().getClass().getName();
     }
 
     public List<String> describe_splits(String start_token, String end_token, int keys_per_split) throws TException
@@ -675,7 +679,7 @@ public class CassandraServer implements Cassandra.Iface
         List<String> splits = new ArrayList<String>(tokens.size());
         for (Token token : tokens)
         {
-            splits.add(token.toString());
+            splits.add(tf.toString(token));
         }
         return splits;
     }
@@ -684,6 +688,14 @@ public class CassandraServer implements Cassandra.Iface
     {
         DatabaseDescriptor.getAuthenticator().login(keyspace, auth_request);
         loginDone.set(true);
+    }
+
+    public void logout()
+    {
+        loginDone.remove();
+
+        if (logger.isDebugEnabled())
+            logger.debug("logout complete");
     }
 
     protected void checkLoginDone() throws InvalidRequestException
@@ -710,7 +722,6 @@ public class CassandraServer implements Cassandra.Iface
         }
         return thrift_clock;
     }
-
 
     // main method moved to CassandraDaemon
 }

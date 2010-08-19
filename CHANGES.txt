@@ -1,3 +1,70 @@
+0.6.4
+ * avoid queuing multiple hint deliveries for the same endpoint
+   (CASSANDRA-1229)
+ * better performance for and stricter checking of UTF8 column names
+   (CASSANDRA-1232)
+ * extend option to lower compaction priority to hinted handoff
+   as well (CASSANDRA-1260)
+ * added describe_partitioner Thrift method (CASSANDRA-1047)
+ * Hadoop jobs no longer require the Cassandra storage-conf.xml
+   (CASSANDRA-1280, CASSANDRA-1047)
+ * log thread pool stats when GC is excessive (CASSANDRA-1275)
+ * log errors in gossip instead of re-throwing (CASSANDRA-1289)
+ * avoid aborting commitlog replay prematurely if a flushed-but-
+   not-removed commitlog segment is encountered (CASSANDRA-1297)
+ * fix duplicate rows being read during mapreduce (CASSANDRA-1042)
+ * failure detection wasn't closing command sockets (CASSANDRA-1221)
+ * cassandra-cli.bat works on windows (CASSANDRA-1236)
+ * pre-emptively drop requests that cannot be processed within RPCTimeout
+   (CASSANDRA-685)
+ * add ack to Binary write verb and update CassandraBulkLoader
+   to wait for acks for each row (CASSANDRA-1093)
+ * remove gossip message size limit (CASSANDRA-1138)
+ * parallelize local and remote reads during multiget, and respect snitch 
+   when determining whether to do local read for CL.ONE (CASSANDRA-1317)
+ * fix read repair to use requested consistency level on digest mismatch,
+   rather than assuming QUORUM (CASSANDRA-1316)
+ * process digest mismatch re-reads in parallel (CASSANDRA-1323)
+ * switch hints CF comparator to BytesType (CASSANDRA-1274)
+
+
+0.6.3
+ * retry to make streaming connections up to 8 times. (CASSANDRA-1019)
+ * reject describe_ring() calls on invalid keyspaces (CASSANDRA-1111)
+ * fix cache size calculation for size of 100% (CASSANDRA-1129)
+ * fix cache capacity only being recalculated once (CASSANDRA-1129)
+ * remove hourly scan of all hints on the off chance that the gossiper
+   missed a status change; instead, expose deliverHintsToEndpoint to JMX
+   so it can be done manually, if necessary (CASSANDRA-1141)
+ * don't reject reads at CL.ALL (CASSANDRA-1152)
+ * reject deletions to supercolumns in CFs containing only standard
+   columns (CASSANDRA-1139)
+ * avoid preserving login information after client disconnects
+   (CASSANDRA-1057)
+ * prefer sun jdk to openjdk in debian init script (CASSANDRA-1174)
+ * detect partioner config changes between restarts and fail fast 
+   (CASSANDRA-1146)
+ * use generation time to resolve node token reassignment disagreements
+   (CASSANDRA-1118)
+ * restructure the startup ordering of Gossiper and MessageService to avoid
+   timing anomalies (CASSANDRA-1160)
+ * detect incomplete commit log hearders (CASSANDRA-1119)
+ * force anti-entropy service to stream files on the stream stage to avoid
+   sending streams out of order (CASSANDRA-1169)
+ * remove inactive stream managers after AES streams files (CASSANDRA-1169)
+ * allow removing entire row through batch_mutate Deletion (CASSANDRA-1027)
+ * add JMX metrics for row-level bloom filter false positives (CASSANDRA-1212)
+ * added a redhat init script to contrib (CASSANDRA-1201)
+ * use midpoint when bootstrapping a new machine into range with not
+   much data yet instead of random token (CASSANDRA-1112)
+ * kill server on OOM in executor stage as well as Thrift (CASSANDRA-1226)
+ * remove opportunistic repairs, when two machines with overlapping replica
+   responsibilities happen to finish major compactions of the same CF near
+   the same time.  repairs are now fully manual (CASSANDRA-1190)
+ * add ability to lower compaction priority (default is no change from 0.6.2)
+   (CASSANDRA-1181)
+
+
 0.6.2
  * fix contrib/word_count build. (CASSANDRA-992)
  * split CommitLogExecutorService into BatchCommitLogExecutorService and 
@@ -11,6 +78,23 @@
    (CASSANDRA-1060)
  * disable GCInspector on non-Sun JVMs (CASSANDRA-1061)
  * fix tombstone handling in sstable rows with no other data (CASSANDRA-1063)
+ * fix size of row in spanned index entries (CASSANDRA-1056)
+ * install json2sstable, sstable2json, and sstablekeys to Debian package
+ * StreamingService.StreamDestinations wouldn't empty itself after streaming
+   finished (CASSANDRA-1076)
+ * added Collections.shuffle(splits) before returning the splits in 
+   ColumnFamilyInputFormat (CASSANDRA-1096)
+ * do not recalculate cache capacity post-compaction if it's been manually 
+   modified (CASSANDRA-1079)
+ * better defaults for flush sorter + writer executor queue sizes
+   (CASSANDRA-1100)
+ * windows scripts for SSTableImport/Export (CASSANDRA-1051)
+ * windows script for nodetool (CASSANDRA-1113)
+ * expose PhiConvictThreshold (CASSANDRA-1053)
+ * make repair of RF==1 a no-op (CASSANDRA-1090)
+ * improve default JVM GC options (CASSANDRA-1014)
+ * fix SlicePredicate serialization inside Hadoop jobs (CASSANDRA-1049)
+ * close Thrift sockets in Hadoop ColumnFamilyRecordReader (CASSANDRA-1081)
 
 
 0.6.1

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.IOError;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
+import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -223,10 +224,10 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         MessagingService.instance.registerVerbHandlers(Verb.TREE_REQUEST, new TreeRequestVerbHandler());
         MessagingService.instance.registerVerbHandlers(Verb.TREE_RESPONSE, new AntiEntropyService.TreeResponseVerbHandler());
 
-        MessagingService.instance.registerVerbHandlers(Verb.JOIN, new Gossiper.JoinVerbHandler());
-        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_SYN, new Gossiper.GossipDigestSynVerbHandler());
-        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_ACK, new Gossiper.GossipDigestAckVerbHandler());
-        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_ACK2, new Gossiper.GossipDigestAck2VerbHandler());
+        MessagingService.instance.registerVerbHandlers(Verb.JOIN, new GossiperJoinVerbHandler());
+        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_SYN, new GossipDigestSynVerbHandler());
+        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_ACK, new GossipDigestAckVerbHandler());
+        MessagingService.instance.registerVerbHandlers(Verb.GOSSIP_DIGEST_ACK2, new GossipDigestAck2VerbHandler());
 
         replicationStrategies = new HashMap<String, AbstractReplicationStrategy>();
         for (String table : DatabaseDescriptor.getNonSystemTables())
@@ -288,10 +289,10 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         initialized = true;
         isClientMode = true;
         logger_.info("Starting up client gossip");
-        MessagingService.instance.listen(FBUtilities.getLocalAddress());
+        setMode("Client", false);
         Gossiper.instance.register(this);
         Gossiper.instance.start(FBUtilities.getLocalAddress(), (int)(System.currentTimeMillis() / 1000)); // needed for node-ring gathering.
-        setMode("Client", false);
+        MessagingService.instance.listen(FBUtilities.getLocalAddress());
     }
 
     public synchronized void initServer() throws IOException
@@ -327,15 +328,15 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
 
         logger_.info("Starting up server gossip");
 
-        MessagingService.instance.listen(FBUtilities.getLocalAddress());
-
-        StorageLoadBalancer.instance.startBroadcasting();
-
         // have to start the gossip service before we can see any info on other nodes.  this is necessary
         // for bootstrap to get the load info it needs.
         // (we won't be part of the storage ring though until we add a nodeId to our state, below.)
         Gossiper.instance.register(this);
         Gossiper.instance.start(FBUtilities.getLocalAddress(), storageMetadata_.getGeneration()); // needed for node-ring gathering.
+
+        MessagingService.instance.listen(FBUtilities.getLocalAddress());
+
+        StorageLoadBalancer.instance.startBroadcasting();
 
         if (DatabaseDescriptor.isAutoBootstrap()
                 && DatabaseDescriptor.getSeeds().contains(FBUtilities.getLocalAddress())
@@ -394,7 +395,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         isBootstrapMode = true;
         SystemTable.updateToken(token); // DON'T use setToken, that makes us part of the ring locally which is incorrect until we are done bootstrapping
         Gossiper.instance.addLocalApplicationState(MOVE_STATE, new ApplicationState(STATE_BOOTSTRAPPING + Delimiter + partitioner_.getTokenFactory().toString(token)));
-        setMode("Joining: sleeping " + RING_DELAY + " for pending range setup", true);
+        setMode("Joining: sleeping " + RING_DELAY + " ms for pending range setup", true);
         try
         {
             Thread.sleep(RING_DELAY);
@@ -548,7 +549,13 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         if (tokenMetadata_.isMember(endPoint))
             logger_.info("Node " + endPoint + " state jump to normal");
 
-        tokenMetadata_.updateNormalToken(token, endPoint);
+        // we don't want to update if this node is responsible for the token and it has a later startup time than endpoint.
+        InetAddress currentNode = tokenMetadata_.getEndPoint(token);
+        if (currentNode == null || (FBUtilities.getLocalAddress().equals(currentNode) && Gossiper.instance.compareEndpointStartup(endPoint, currentNode) > 0))
+            tokenMetadata_.updateNormalToken(token, endPoint);
+        else
+            logger_.info("Will not change my token ownership to " + endPoint);
+        
         calculatePendingRanges();
         if (!isClientMode)
             SystemTable.updateToken(endPoint, token);
@@ -869,7 +876,10 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
             deliverHints(endpoint);
     }
 
-    public void onDead(InetAddress endpoint, EndPointState state) {}
+    public void onDead(InetAddress endpoint, EndPointState state) 
+    {
+        MessagingService.instance.convict(endpoint);
+    }
 
     /** raw load value */
     public double getLoad()
@@ -920,6 +930,11 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
     {
         if (DatabaseDescriptor.hintedHandoffEnabled())
             HintedHandOffManager.instance.deliverHints(endpoint);
+    }
+
+    public final void deliverHints(String host) throws UnknownHostException
+    {
+        HintedHandOffManager.instance.deliverHints(host);
     }
 
     public Token getLocalToken()
@@ -1285,7 +1300,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         FBUtilities.sortSampledKeys(keys, range);
 
         if (keys.size() < 3)
-            return partitioner_.getRandomToken();
+            return partitioner_.midpoint(range.left, range.right);
         else
             return keys.get(keys.size() / 2).token;
     }
@@ -1315,7 +1330,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         if (logger_.isDebugEnabled())
             logger_.debug("DECOMMISSIONING");
         startLeaving();
-        setMode("Leaving: sleeping " + RING_DELAY + " for pending range setup", true);
+        setMode("Leaving: sleeping " + RING_DELAY + " ms for pending range setup", true);
         Thread.sleep(RING_DELAY);
 
         Runnable finishLeaving = new Runnable()
@@ -1432,7 +1447,7 @@ public class StorageService implements IEndPointStateChangeSubscriber, StorageSe
         if (logger_.isDebugEnabled())
             logger_.debug("Leaving: old token was " + getLocalToken());
         startLeaving();
-         setMode("Leaving: sleeping " + RING_DELAY + " for pending range setup", true);
+         setMode("Leaving: sleeping " + RING_DELAY + " ms for pending range setup", true);
         Thread.sleep(RING_DELAY);
 
         Runnable finishMoving = new WrappedRunnable()

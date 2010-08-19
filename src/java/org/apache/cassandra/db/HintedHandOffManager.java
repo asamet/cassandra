@@ -18,8 +18,10 @@
 
 package org.apache.cassandra.db;
 
+import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutorService;
 import java.io.IOException;
@@ -44,6 +46,7 @@ import org.apache.cassandra.thrift.InvalidRequestException;
 import org.apache.cassandra.db.filter.IdentityQueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.cliffc.high_scale_lib.NonBlockingHashSet;
 
 
 /**
@@ -82,26 +85,22 @@ public class HintedHandOffManager
     public static final HintedHandOffManager instance = new HintedHandOffManager();
 
     private static final Logger logger_ = Logger.getLogger(HintedHandOffManager.class);
-    final static long INTERVAL_IN_MS = 3600 * 1000; // check for ability to deliver hints this often
     public static final String HINTS_CF = "HintsColumnFamily";
     private static final int PAGE_SIZE = 10000;
 
-    private final ExecutorService executor_ = new JMXEnabledThreadPoolExecutor("HINTED-HANDOFF-POOL");
+    private final NonBlockingHashSet<InetAddress> queuedDeliveries = new NonBlockingHashSet<InetAddress>();
 
-    protected HintedHandOffManager()
+    private final ExecutorService executor_;
+
+    public HintedHandOffManager()
     {
         if (DatabaseDescriptor.hintedHandoffEnabled())
-            new Thread(new WrappedRunnable()
-            {
-                public void runMayThrow() throws Exception
-                {
-                    while (true)
-                    {
-                        Thread.sleep(INTERVAL_IN_MS);
-                        deliverAllHints();
-                    }
-                }
-            }, "Hint delivery").start();
+        {
+            int hhPriority = System.getProperty("cassandra.compaction.priority") == null
+                            ? Thread.NORM_PRIORITY
+                             : Integer.parseInt(System.getProperty("cassandra.compaction.priority"));
+            executor_ = new JMXEnabledThreadPoolExecutor("HINTED-HANDOFF-POOL", hhPriority);
+        }
     }
 
     private static boolean sendMessage(InetAddress endPoint, String tableName, String key) throws IOException
@@ -159,69 +158,6 @@ public class HintedHandOffManager
         rm.apply();
     }
 
-    /** hintStore must be the hints columnfamily from the system table */
-    private static void deliverAllHints() throws DigestMismatchException, IOException, InvalidRequestException, TimeoutException
-    {
-        if (logger_.isDebugEnabled())
-          logger_.debug("Started deliverAllHints");
-
-        // 1. Scan through all the keys that we need to handoff
-        // 2. For each key read the list of recipients and send
-        // 3. Delete that recipient from the key if write was successful
-        // 4. If all writes were success for a given key we can even delete the key .
-        // 5. Now force a flush
-        // 6. Do major compaction to clean up all deletes etc.
-        // 7. I guess we are done
-        ColumnFamilyStore hintStore = Table.open(Table.SYSTEM_TABLE).getColumnFamilyStore(HINTS_CF);
-        for (String tableName : DatabaseDescriptor.getTables())
-        {
-            byte[] startColumn = ArrayUtils.EMPTY_BYTE_ARRAY;
-            while (true)
-            {
-                QueryFilter filter = new SliceQueryFilter(tableName, new QueryPath(HINTS_CF), startColumn, ArrayUtils.EMPTY_BYTE_ARRAY, false, PAGE_SIZE);
-                ColumnFamily hintColumnFamily = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), Integer.MAX_VALUE);
-                if (pagingFinished(hintColumnFamily, startColumn))
-                    break;
-                Collection<IColumn> keys = hintColumnFamily.getSortedColumns();
-
-                for (IColumn keyColumn : keys)
-                {
-                    Collection<IColumn> endpoints = keyColumn.getSubColumns();
-                    String keyStr = new String(keyColumn.name(), "UTF-8");
-                    int deleted = 0;
-                    for (IColumn endpoint : endpoints)
-                    {
-                        if (sendMessage(InetAddress.getByAddress(endpoint.name()), tableName, keyStr))
-                        {
-//TODO: TEST
-//                            deleteEndPoint(endpoint.name(), tableName, keyColumn.name(), System.currentTimeMillis());
-                            deleteEndPoint(endpoint.name(), tableName, keyColumn.name());
-                            deleted++;
-                        }
-                    }
-                    if (deleted == endpoints.size())
-                    {
-                        deleteHintKey(tableName, keyColumn.name());
-                    }
-
-                    startColumn = keyColumn.name();
-                }
-            }
-        }
-        hintStore.forceFlush();
-        try
-        {
-            CompactionManager.instance.submitMajor(hintStore).get();
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
-
-        if (logger_.isDebugEnabled())
-          logger_.debug("Finished deliverAllHints");
-    }
-
     private static boolean pagingFinished(ColumnFamily hintColumnFamily, byte[] startColumn)
     {
         // done if no hints found or the start column (same as last column processed in previous iteration) is the only one
@@ -229,15 +165,18 @@ public class HintedHandOffManager
                || (hintColumnFamily.getSortedColumns().size() == 1 && hintColumnFamily.getColumn(startColumn) != null);
     }
 
-    private static void deliverHintsToEndpoint(InetAddress endPoint) throws IOException, DigestMismatchException, InvalidRequestException, TimeoutException
+    private void deliverHintsToEndpoint(InetAddress endPoint) throws IOException, DigestMismatchException, InvalidRequestException, TimeoutException
     {
-        if (logger_.isDebugEnabled())
-          logger_.debug("Started hinted handoff for endPoint " + endPoint);
+        logger_.info("Started hinted handoff for endPoint " + endPoint);
+        queuedDeliveries.remove(endPoint);
 
         byte[] targetEPBytes = endPoint.getAddress();
         // 1. Scan through all the keys that we need to handoff
         // 2. For each key read the list of recipients if the endpoint matches send
         // 3. Delete that recipient from the key if write was successful
+        // 4. Now force a flush
+        // 5. Do major compaction to clean up all deletes etc.
+        int rowsReplayed = 0;
         ColumnFamilyStore hintStore = Table.open(Table.SYSTEM_TABLE).getColumnFamilyStore(HINTS_CF);
         for (String tableName : DatabaseDescriptor.getTables())
         {
@@ -258,6 +197,7 @@ public class HintedHandOffManager
                     {
                         if (Arrays.equals(hintEndPoint.name(), targetEPBytes) && sendMessage(endPoint, tableName, keyStr))
                         {
+                            rowsReplayed++;
                             if (endpoints.size() == 1)
                                 deleteHintKey(tableName, keyColumn.name());
                             else
@@ -273,8 +213,21 @@ public class HintedHandOffManager
             }
         }
 
-        if (logger_.isDebugEnabled())
-          logger_.debug("Finished hinted handoff for endpoint " + endPoint);
+        if (rowsReplayed > 0)
+        {
+            hintStore.forceFlush();
+            try
+            {
+                CompactionManager.instance.submitMajor(hintStore, 0, Integer.MAX_VALUE).get();
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+
+        logger_.info(String.format("Finished hinted handoff of %s rows to endpoint %s",
+                                   rowsReplayed, endPoint));
     }
 
     /*
@@ -284,6 +237,9 @@ public class HintedHandOffManager
     */
     public void deliverHints(final InetAddress to)
     {
+        if (!queuedDeliveries.add(to))
+            return;
+
         Runnable r = new WrappedRunnable()
         {
             public void runMayThrow() throws Exception
@@ -292,5 +248,10 @@ public class HintedHandOffManager
             }
         };
     	executor_.submit(r);
+    }
+
+    public void deliverHints(String to) throws UnknownHostException
+    {
+        deliverHints(InetAddress.getByName(to));
     }
 }

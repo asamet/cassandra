@@ -226,6 +226,9 @@
 
   <!-- Time to wait for a reply from other nodes before failing the command -->
   <RpcTimeoutInMillis>10000</RpcTimeoutInMillis>
+  <!-- phi value that must be reached before a host is marked as down.
+       most users should never adjust this -->
+  <!-- PhiConvictThreshold>8</PhiConvictThreshold -->
   <!-- Size to allow commitlog to grow to before creating a new segment -->
   <CommitLogRotationThresholdInMB>128</CommitLogRotationThresholdInMB>
 
@@ -342,8 +345,7 @@
    ~ commit log segment, that segment cannot be deleted.)
    ~ This needs to be large enough that it won't cause a flush storm
    ~ of all your memtables flushing at once because none has hit
-   ~ the size or count thresholds yet.  For production, a larger
-   ~ value such as 1440 is recommended.
+   ~ the size or count thresholds yet.
   -->
   <MemtableFlushAfterMinutes>60</MemtableFlushAfterMinutes>
 

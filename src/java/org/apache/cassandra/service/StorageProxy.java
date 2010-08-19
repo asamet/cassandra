@@ -36,6 +36,7 @@ import org.apache.commons.lang.StringUtils;
 
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Multimap;
+
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
@@ -49,10 +50,10 @@ import org.apache.cassandra.net.IAsyncResult;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.thrift.ConsistencyLevel;
+import org.apache.cassandra.thrift.InvalidRequestException;
 import org.apache.cassandra.thrift.UnavailableException;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.LatencyTracker;
-import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
 
 
@@ -388,22 +389,21 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     /**
-     * Read the data from one replica.  When we get
-     * the data we perform consistency checks and figure out if any repairs need to be done to the replicas.
-     * @param commands a set of commands to perform reads
-     * @return the row associated with command.key
-     * @throws Exception
+     * Performs the actual reading of a row out of the StorageService, fetching
+     * a specific set of column names from a given column family.
      */
-    private static List<Row> weakReadRemote(List<ReadCommand> commands) throws IOException, UnavailableException, TimeoutException
+    public static List<Row> readProtocol(List<ReadCommand> commands, ConsistencyLevel consistency_level)
+            throws IOException, UnavailableException, TimeoutException, InvalidRequestException
     {
-        if (logger.isDebugEnabled())
-            logger.debug("weakreadremote reading " + StringUtils.join(commands, ", "));
+        if (StorageService.instance.isBootstrapMode())
+            throw new InvalidRequestException("This node cannot accept reads until it has bootstrapped");
+        long startTime = System.nanoTime();
 
-        List<Row> rows = new ArrayList<Row>();
-        List<IAsyncResult> iars = new ArrayList<IAsyncResult>();
-
-        for (ReadCommand command: commands)
+        List<Row> rows;
+        if (consistency_level == ConsistencyLevel.ONE)
         {
+          /*
+          PRE MERGE asamet
             ColumnType cfType = DatabaseDescriptor.getColumnFamilyType(command.table, command.queryPath.columnFamilyName);
             InetAddress endpoint = null;
             if (cfType.isContext())
@@ -428,66 +428,8 @@ public class StorageProxy implements StorageProxyMBean
             if (DatabaseDescriptor.getConsistencyCheck())
                 message.setHeader(ReadCommand.DO_REPAIR, ReadCommand.DO_REPAIR.getBytes());
             iars.add(MessagingService.instance.sendRR(message, endpoint));
-        }
-
-        for (IAsyncResult iar: iars)
-        {
-            byte[] body;
-            body = iar.get(DatabaseDescriptor.getRpcTimeout(), TimeUnit.MILLISECONDS);
-            ByteArrayInputStream bufIn = new ByteArrayInputStream(body);
-            ReadResponse response = ReadResponse.serializer().deserialize(new DataInputStream(bufIn));
-            if (response.row() != null)
-                rows.add(response.row());
-        }
-        return rows;
-    }
-
-    /**
-     * Performs the actual reading of a row out of the StorageService, fetching
-     * a specific set of column names from a given column family.
-     */
-    public static List<Row> readProtocol(List<ReadCommand> commands, ConsistencyLevel consistency_level)
-            throws IOException, UnavailableException, TimeoutException
-    {
-        long startTime = System.nanoTime();
-
-        List<Row> rows = new ArrayList<Row>();
-
-        if (consistency_level == ConsistencyLevel.ONE)
-        {
-            List<ReadCommand> localCommands = new ArrayList<ReadCommand>();
-            List<ReadCommand> remoteCommands = new ArrayList<ReadCommand>();
-
-            for (ReadCommand command: commands)
-            {
-                List<InetAddress> endpoints = StorageService.instance.getLiveNaturalEndpoints(command.table, command.key);
-                Boolean foundLocal = null;
-                ColumnType cfType = DatabaseDescriptor.getColumnFamilyType(command.table, command.queryPath.columnFamilyName);
-                if (cfType.isContext())
-                {
-                    if (endpoints.size() < 1)
-                    {
-                        throw new UnavailableException();
-                    }
-                    foundLocal = endpoints.get(0).equals(FBUtilities.getLocalAddress());
-                } else {
-                    foundLocal = endpoints.contains(FBUtilities.getLocalAddress());
-                }
-                //TODO: Throw InvalidRequest if we're in bootstrap mode?
-                if (foundLocal && !StorageService.instance.isBootstrapMode())
-                {
-                    localCommands.add(command);
-                }
-                else
-                {
-                    remoteCommands.add(command);
-                }
-            }
-            if (localCommands.size() > 0)
-                rows.addAll(weakReadLocal(localCommands));
-
-            if (remoteCommands.size() > 0)
-                rows.addAll(weakReadRemote(remoteCommands));
+*/
+            rows = weakRead(commands);
         }
         else
         {
@@ -496,6 +438,88 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         readStats.addNano(System.nanoTime() - startTime);
+        return rows;
+    }
+
+    private static List<Row> weakRead(List<ReadCommand> commands) throws IOException, UnavailableException, TimeoutException
+    {
+        List<Row> rows = new ArrayList<Row>();
+
+        // send off all the commands asynchronously
+        List<Future<Object>> localFutures = null;
+        List<IAsyncResult> remoteResults = null;
+        for (ReadCommand command: commands)
+        {
+// FINAL
+            ColumnType cfType = DatabaseDescriptor.getColumnFamilyType(command.table, command.queryPath.columnFamilyName);
+            InetAddress endpoint = null;
+            if (cfType.isContext())
+            {
+                List<InetAddress> liveEndpoints = StorageService.instance.getLiveNaturalEndpoints(command.table, command.key);
+                if (liveEndpoints.isEmpty())
+                {
+                    throw new UnavailableException();
+                }
+                // For context types, we always want to try and read from the first node in the ring.
+                endpoint = liveEndpoints.get(0);
+            } else
+            {
+                endpoint = StorageService.instance.findSuitableEndPoint(command.table, command.key);
+            }
+
+
+            if (endPoint.equals(FBUtilities.getLocalAddress()))
+            {
+                if (logger.isDebugEnabled())
+                    logger.debug("weakread reading " + command + " locally");
+
+                if (localFutures == null)
+                    localFutures = new ArrayList<Future<Object>>();
+                Callable<Object> callable = new weakReadLocalCallable(command);
+                localFutures.add(StageManager.getStage(StageManager.READ_STAGE).submit(callable));
+            }
+            else
+            {
+                if (remoteResults == null)
+                    remoteResults = new ArrayList<IAsyncResult>();
+                Message message = command.makeReadMessage();
+                if (logger.isDebugEnabled())
+                    logger.debug("weakread reading " + command + " from " + message.getMessageId() + "@" + endPoint);
+                if (DatabaseDescriptor.getConsistencyCheck())
+                    message.setHeader(ReadCommand.DO_REPAIR, ReadCommand.DO_REPAIR.getBytes());
+                remoteResults.add(MessagingService.instance.sendRR(message, endPoint));
+            }
+        }
+
+        // wait for results
+        if (localFutures != null)
+        {
+            for (Future<Object> future : localFutures)
+            {
+                Row row;
+                try
+                {
+                    row = (Row) future.get();
+                }
+                catch (Exception e)
+                {
+                    throw new RuntimeException(e);
+                }
+                rows.add(row);
+            }
+        }
+        if (remoteResults != null)
+        {
+            for (IAsyncResult iar: remoteResults)
+            {
+                byte[] body;
+                body = iar.get(DatabaseDescriptor.getRpcTimeout(), TimeUnit.MILLISECONDS);
+                ByteArrayInputStream bufIn = new ByteArrayInputStream(body);
+                ReadResponse response = ReadResponse.serializer().deserialize(new DataInputStream(bufIn));
+                if (response.row() != null)
+                    rows.add(response.row());
+            }
+        }
 
         return rows;
     }
@@ -518,8 +542,7 @@ public class StorageProxy implements StorageProxyMBean
         List<InetAddress[]> commandEndPoints = new ArrayList<InetAddress[]>();
         List<Row> rows = new ArrayList<Row>();
 
-        int commandIndex = 0;
-
+        // send out read requests
         for (ReadCommand command: commands)
         {
             assert !command.isDigestQuery();
@@ -548,16 +571,19 @@ public class StorageProxy implements StorageProxyMBean
                 if (logger.isDebugEnabled())
                     logger.debug("strongread reading " + (m == message ? "data" : "digest") + " for " + command + " from " + m.getMessageId() + "@" + endpoint);
             }
-            QuorumResponseHandler<Row> quorumResponseHandler = new QuorumResponseHandler<Row>(DatabaseDescriptor.getQuorum(command.table), new ReadResponseResolver(command.table, responseCount));
+            QuorumResponseHandler<Row> quorumResponseHandler = new QuorumResponseHandler<Row>(responseCount, new ReadResponseResolver(command.table, responseCount));
             MessagingService.instance.sendRR(messages, endPoints, quorumResponseHandler);
             quorumResponseHandlers.add(quorumResponseHandler);
             commandEndPoints.add(endPoints);
         }
 
-        for (QuorumResponseHandler<Row> quorumResponseHandler: quorumResponseHandlers)
+        // read results and make a second pass for any digest mismatches
+        List<QuorumResponseHandler<Row>> repairResponseHandlers = null;
+        for (int i = 0; i < commands.size(); i++)
         {
+            QuorumResponseHandler<Row> quorumResponseHandler = quorumResponseHandlers.get(i);
             Row row;
-            ReadCommand command = commands.get(commandIndex);
+            ReadCommand command = commands.get(i);
             try
             {
                 long startTime2 = System.currentTimeMillis();
@@ -572,27 +598,35 @@ public class StorageProxy implements StorageProxyMBean
             {
                 if (DatabaseDescriptor.getConsistencyCheck())
                 {
-                    IResponseResolver<Row> readResponseResolverRepair = new ReadResponseResolver(command.table, DatabaseDescriptor.getQuorum(command.table));
-                    QuorumResponseHandler<Row> quorumResponseHandlerRepair = new QuorumResponseHandler<Row>(
-                            DatabaseDescriptor.getQuorum(command.table),
-                            readResponseResolverRepair);
-                    logger.info("DigestMismatchException: " + ex.getMessage());
+                    if (logger.isDebugEnabled())
+                        logger.debug("Digest mismatch:", ex);
+                    int responseCount = determineBlockFor(DatabaseDescriptor.getReplicationFactor(command.table), consistency_level);
+                    QuorumResponseHandler<Row> qrhRepair = new QuorumResponseHandler<Row>(responseCount, new ReadResponseResolver(command.table, responseCount));
                     Message messageRepair = command.makeReadMessage();
-                    MessagingService.instance.sendRR(messageRepair, commandEndPoints.get(commandIndex), quorumResponseHandlerRepair);
-                    try
-                    {
-                        row = quorumResponseHandlerRepair.get();
-                        if (row != null)
-                            rows.add(row);
-                    }
-                    catch (DigestMismatchException e)
-                    {
-                        // TODO should this be a thrift exception?
-                        throw new RuntimeException("digest mismatch reading key " + command.key, e);
-                    }
+                    MessagingService.instance.sendRR(messageRepair, commandEndPoints.get(i), qrhRepair);
+                    if (repairResponseHandlers == null)
+                        repairResponseHandlers = new ArrayList<QuorumResponseHandler<Row>>();
+                    repairResponseHandlers.add(qrhRepair);
                 }
             }
-            commandIndex++;
+        }
+
+        // read the results for the digest mismatch retries
+        if (repairResponseHandlers != null)
+        {
+            for (QuorumResponseHandler<Row> handler : repairResponseHandlers)
+            {
+                try
+                {
+                    Row row = handler.get();
+                    if (row != null)
+                        rows.add(row);
+                }
+                catch (DigestMismatchException e)
+                {
+                    throw new AssertionError(e); // full data requested from each node here, no digests should be sent
+                }
+            }
         }
 
         return rows;
@@ -601,31 +635,6 @@ public class StorageProxy implements StorageProxyMBean
     /*
     * This function executes the read protocol locally.  Consistency checks are performed in the background.
     */
-    private static List<Row> weakReadLocal(List<ReadCommand> commands)
-    {
-        List<Row> rows = new ArrayList<Row>();
-        List<Future<Object>> futures = new ArrayList<Future<Object>>();
-
-        for (ReadCommand command: commands)
-        {
-            Callable<Object> callable = new weakReadLocalCallable(command);
-            futures.add(StageManager.getStage(StageManager.READ_STAGE).submit(callable));
-        }
-        for (Future<Object> future : futures)
-        {
-            Row row;
-            try
-            {
-                row = (Row) future.get();
-            }
-            catch (Exception e)
-            {
-                throw new RuntimeException(e);
-            }
-            rows.add(row);
-        }
-        return rows;
-    }
 
     public static List<Row> getRangeSlice(RangeSliceCommand command, ConsistencyLevel consistency_level)
     throws IOException, UnavailableException, TimeoutException
@@ -637,14 +646,18 @@ public class StorageProxy implements StorageProxyMBean
         final String table = command.keyspace;
         int responseCount = determineBlockFor(DatabaseDescriptor.getReplicationFactor(table), consistency_level);
 
-        List<Pair<AbstractBounds, List<InetAddress>>> ranges = getRestrictedRanges(command.range, command.keyspace, responseCount);
+        List<AbstractBounds> ranges = getRestrictedRanges(command.range);
 
         // now scan until we have enough results
         List<Row> rows = new ArrayList<Row>(command.max_keys);
-        for (Pair<AbstractBounds, List<InetAddress>> pair : getRangeIterator(ranges, command.range.left))
+        for (AbstractBounds range : getRangeIterator(ranges, command.range.left))
         {
-            AbstractBounds range = pair.left;
-            List<InetAddress> endpoints = pair.right;
+            List<InetAddress> liveEndpoints = StorageService.instance.getLiveNaturalEndpoints(command.keyspace, range.right);
+            if (liveEndpoints.size() < responseCount)
+                throw new UnavailableException();
+            DatabaseDescriptor.getEndPointSnitch(command.keyspace).sortByProximity(FBUtilities.getLocalAddress(), liveEndpoints);
+            List<InetAddress> endpoints = liveEndpoints.subList(0, responseCount);
+
             RangeSliceCommand c2 = new RangeSliceCommand(command.keyspace, command.column_family, command.super_column, command.predicate, range, command.max_keys);
             Message message = c2.getMessage();
 
@@ -687,42 +700,30 @@ public class StorageProxy implements StorageProxyMBean
     /**
      * returns an iterator that will return ranges in ring order, starting with the one that contains the start token
      */
-    private static Iterable<Pair<AbstractBounds, List<InetAddress>>> getRangeIterator(final List<Pair<AbstractBounds, List<InetAddress>>> ranges, Token start)
+    private static Iterable<AbstractBounds> getRangeIterator(final List<AbstractBounds> ranges, Token start)
     {
-        // sort ranges in ring order
-        Comparator<Pair<AbstractBounds, List<InetAddress>>> comparator = new Comparator<Pair<AbstractBounds, List<InetAddress>>>()
-        {
-            public int compare(Pair<AbstractBounds, List<InetAddress>> o1, Pair<AbstractBounds, List<InetAddress>> o2)
-            {
-                // no restricted ranges will overlap so we don't need to worry about inclusive vs exclusive left,
-                // just sort by raw token position.
-                return o1.left.left.compareTo(o2.left.left);
-            }
-        };
-        Collections.sort(ranges, comparator);
-
         // find the one to start with
         int i;
         for (i = 0; i < ranges.size(); i++)
         {
-            AbstractBounds range = ranges.get(i).left;
+            AbstractBounds range = ranges.get(i);
             if (range.contains(start) || range.left.equals(start))
                 break;
         }
-        AbstractBounds range = ranges.get(i).left;
+        AbstractBounds range = ranges.get(i);
         assert range.contains(start) || range.left.equals(start); // make sure the loop didn't just end b/c ranges were exhausted
 
         // return an iterable that starts w/ the correct range and iterates the rest in ring order
         final int begin = i;
-        return new Iterable<Pair<AbstractBounds, List<InetAddress>>>()
+        return new Iterable<AbstractBounds>()
         {
-            public Iterator<Pair<AbstractBounds, List<InetAddress>>> iterator()
+            public Iterator<AbstractBounds> iterator()
             {
-                return new AbstractIterator<Pair<AbstractBounds, List<InetAddress>>>()
+                return new AbstractIterator<AbstractBounds>()
                 {
                     int n = 0;
 
-                    protected Pair<AbstractBounds, List<InetAddress>> computeNext()
+                    protected AbstractBounds computeNext()
                     {
                         if (n == ranges.size())
                             return endOfData();
@@ -747,33 +748,50 @@ public class StorageProxy implements StorageProxyMBean
      *     D, but we don't want any other results from it until after the (D, T] range.  Unwrapping so that
      *     the ranges we consider are (D, T], (T, MIN], (MIN, D] fixes this.
      */
-    private static List<Pair<AbstractBounds, List<InetAddress>>> getRestrictedRanges(AbstractBounds queryRange, String keyspace, int responseCount)
-    throws UnavailableException
+    private static List<AbstractBounds> getRestrictedRanges(final AbstractBounds queryRange)
     {
         TokenMetadata tokenMetadata = StorageService.instance.getTokenMetadata();
-        Iterator<Token> iter = TokenMetadata.ringIterator(tokenMetadata.sortedTokens(), queryRange.left);
-        List<Pair<AbstractBounds, List<InetAddress>>> ranges = new ArrayList<Pair<AbstractBounds, List<InetAddress>>>();
-        while (iter.hasNext())
-        {
-            Token nodeToken = iter.next();
-            Range nodeRange = new Range(tokenMetadata.getPredecessor(nodeToken), nodeToken);
-            List<InetAddress> endpoints = StorageService.instance.getLiveNaturalEndpoints(keyspace, nodeToken);
-            if (endpoints.size() < responseCount)
-                throw new UnavailableException();
 
-            DatabaseDescriptor.getEndPointSnitch(keyspace).sortByProximity(FBUtilities.getLocalAddress(), endpoints);
-            List<InetAddress> endpointsForCL = endpoints.subList(0, responseCount);
-            Set<AbstractBounds> restrictedRanges = queryRange.restrictTo(nodeRange);
-            for (AbstractBounds range : restrictedRanges)
+        if (logger.isDebugEnabled())
+            logger.debug("computing restricted ranges for query " + queryRange);
+
+        List<AbstractBounds> ranges = new ArrayList<AbstractBounds>();
+        // for each node, compute its intersection with the query range, and add its unwrapped components to our list
+        for (Token nodeToken : tokenMetadata.sortedTokens())
+        {
+            Range nodeRange = new Range(tokenMetadata.getPredecessor(nodeToken), nodeToken);
+            for (AbstractBounds range : queryRange.restrictTo(nodeRange))
             {
                 for (AbstractBounds unwrapped : range.unwrap())
                 {
                     if (logger.isDebugEnabled())
                         logger.debug("Adding to restricted ranges " + unwrapped + " for " + nodeRange);
-                    ranges.add(new Pair<AbstractBounds, List<InetAddress>>(unwrapped, endpointsForCL));
+                    ranges.add(unwrapped);
                 }
             }
         }
+
+        // re-sort ranges in ring order, post-unwrapping
+        Comparator<AbstractBounds> comparator = new Comparator<AbstractBounds>()
+        {
+            // no restricted ranges will overlap so we don't need to worry about inclusive vs exclusive left,
+            // just sort by raw token position.
+            public int compare(AbstractBounds o1, AbstractBounds o2)
+            {
+                // sort in order that the original query range would see them.
+                int queryOrder1 = queryRange.left.compareTo(o1.left);
+                int queryOrder2 = queryRange.left.compareTo(o2.left);
+                if (queryOrder1 < queryOrder2)
+                    return -1; // o1 comes after query start, o2 wraps to after
+                if (queryOrder1 > queryOrder2)
+                    return 1; // o2 comes after query start, o1 wraps to after
+                return o1.left.compareTo(o2.left); // o1 and o2 are on the same side of query start
+            }
+        };
+        Collections.sort(ranges, comparator);
+        if (logger.isDebugEnabled())
+            logger.debug("Sorted ranges are [" + StringUtils.join(ranges, ", ") + "]");
+
         return ranges;
     }
 

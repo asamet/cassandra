@@ -22,8 +22,11 @@ import java.io.*;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -40,9 +43,11 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.IClock;
 import org.apache.cassandra.db.IClock.ClockRelationship;
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.thrift.TBase;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -108,7 +113,7 @@ public class FBUtilities
         if (fractOrAbs < 0)
             throw new UnsupportedOperationException("unexpected negative value " + fractOrAbs);
 
-        if (0 < fractOrAbs && fractOrAbs < 1)
+        if (0 < fractOrAbs && fractOrAbs <= 1)
         {
             // fraction
             return Math.max(1, (long)(fractOrAbs * total));
@@ -623,7 +628,7 @@ public class FBUtilities
         return utflen;
     }
 
-    /** 
+    /**
      * Thin wrapper around byte[] to provide meaningful equals() and hashCode() operations
      * caveat: assumed that wrapped byte[] will not be modified
      */
@@ -660,6 +665,67 @@ public class FBUtilities
         public String toString()
         {
             return ArrayUtils.toString(data);
+    public static byte[] toByteArray(long n)
+    {
+        byte[] bytes = new byte[8];
+        ByteBuffer.wrap(bytes).putLong(n);
+        return bytes;
+    }
+
+    public static void waitOnFutures(Collection<Future<?>> futures)
+    {
+        for (Future f : futures)
+        {
+            try
+            {
+                f.get();
+            }
+            catch (ExecutionException ee)
+            {
+                throw new RuntimeException(ee);
+            }
+            catch (InterruptedException ie)
+            {
+                throw new AssertionError(ie);
+            }
+        }
+    }
+
+    public static IPartitioner newPartitioner(String partitionerClassName)
+    {
+        if (!partitionerClassName.contains("."))
+            partitionerClassName = "org.apache.cassandra.dht." + partitionerClassName;
+
+        try
+        {
+            Class cls = Class.forName(partitionerClassName);
+            return (IPartitioner) cls.getConstructor().newInstance();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException("Invalid partitioner class " + partitionerClassName);
+        }
+    }
+
+    public static AbstractType getComparator(String compareWith)
+    {
+        Class<? extends AbstractType> typeClass;
+        try
+        {
+            if (compareWith == null)
+            {
+                typeClass = BytesType.class;
+            }
+            else
+            {
+                String className = compareWith.contains(".") ? compareWith : "org.apache.cassandra.db.marshal." + compareWith;
+                typeClass = (Class<? extends AbstractType>)Class.forName(className);
+            }
+            return typeClass.getConstructor().newInstance();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
         }
     }
 }

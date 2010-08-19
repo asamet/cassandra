@@ -79,6 +79,7 @@ public class DatabaseDescriptor
     private static InetAddress thriftAddress;
     private static String clusterName = "Test";
     private static long rpcTimeoutInMillis = 2000;
+    private static int phiConvictThreshold = 8;
     private static Set<InetAddress> seeds = new HashSet<InetAddress>();
     /* Keeps the list of data file directories */
     private static String[] dataFileDirectories;
@@ -231,20 +232,24 @@ public class DatabaseDescriptor
             {
                 throw new ConfigurationException("DiskAccessMode must be either 'auto', 'mmap', 'mmap_index_only', or 'standard'");
             }
+
+            /* evaluate the DiskAccessMode conf directive, which also affects indexAccessMode selection */
             if (diskAccessMode == DiskAccessMode.auto)
             {
                 diskAccessMode = System.getProperty("os.arch").contains("64") ? DiskAccessMode.mmap : DiskAccessMode.standard;
                 indexAccessMode = diskAccessMode;
-                logger.info("Auto DiskAccessMode determined to be " + diskAccessMode);
+                logger.info("DiskAccessMode 'auto' determined to be " + diskAccessMode + ", indexAccessMode is " + indexAccessMode );
             }
             else if (diskAccessMode == DiskAccessMode.mmap_index_only)
             {
                 diskAccessMode = DiskAccessMode.standard;
                 indexAccessMode = DiskAccessMode.mmap;
+                logger.info("DiskAccessMode is" + diskAccessMode + ", indexAccessMode is " + indexAccessMode );
             }
             else
             {
                 indexAccessMode = diskAccessMode;
+                logger.info("DiskAccessMode is" + diskAccessMode + ", indexAccessMode is " + indexAccessMode );
             }
 
             /* Authentication and authorization backend, implementing IAuthenticator */
@@ -270,10 +275,9 @@ public class DatabaseDescriptor
             }
             try
             {
-                Class cls = Class.forName(partitionerClassName);
-                partitioner = (IPartitioner) cls.getConstructor().newInstance();
+                partitioner = FBUtilities.newPartitioner(partitionerClassName);
             }
-            catch (ClassNotFoundException e)
+            catch (Exception e)
             {
                 throw new ConfigurationException("Invalid partitioner class " + partitionerClassName);
             }
@@ -295,6 +299,16 @@ public class DatabaseDescriptor
             if ( rpcTimeout != null )
                 rpcTimeoutInMillis = Integer.parseInt(rpcTimeout);
 
+            /* phi convict threshold for FailureDetector */
+            String phiThreshold = xmlUtils.getNodeValue("/Storage/PhiConvictThreshold");
+            if ( phiThreshold != null )
+                    phiConvictThreshold = Integer.parseInt(phiThreshold);
+
+            if (phiConvictThreshold < 5 || phiConvictThreshold > 16)
+            {
+                throw new ConfigurationException("PhiConvictThreshold must be between 5 and 16");
+            }
+            
             /* Thread per pool */
             String rawReaders = xmlUtils.getNodeValue("/Storage/ConcurrentReads");
             if (rawReaders != null)
@@ -515,10 +529,10 @@ public class DatabaseDescriptor
 
             systemMeta.cfMetaData.put(HintedHandOffManager.HINTS_CF, new CFMetaData(Table.SYSTEM_TABLE,
                                                                                     HintedHandOffManager.HINTS_CF,
-//TODO: TEST
-//                                                                                    "Super",
                                                                                     ColumnType.Super,
                                                                                     new UTF8Type(),
+                                                    //                                "Super",
+                                                                                    new BytesType(),
                                                                                     new BytesType(),
 //TODO: TEST
                                                                                     null,
@@ -785,9 +799,7 @@ public class DatabaseDescriptor
     }
 
     private static AbstractType getComparator(Node columnFamily, String attr) throws ConfigurationException
-//    throws ConfigurationException, TransformerException, NoSuchMethodException, InvocationTargetException, IllegalAccessException, InstantiationException
     {
-        Class<? extends AbstractType> typeClass;
         String compareWith = null;
         try
         {
@@ -799,45 +811,12 @@ public class DatabaseDescriptor
             ex.initCause(e);
             throw ex;
         }
-        if (compareWith == null)
-        {
-            typeClass = BytesType.class;
-        }
-        else
-        {
-            String className = compareWith.contains(".") ? compareWith : "org.apache.cassandra.db.marshal." + compareWith;
-            try
-            {
-                typeClass = (Class<? extends AbstractType>)Class.forName(className);
-            }
-            catch (ClassNotFoundException e)
-            {
-                throw new ConfigurationException("Unable to load class " + className + " for " + attr + " attribute");
-            }
-        }
+
         try
         {
-        return typeClass.getConstructor().newInstance();
-    }
-        catch (InstantiationException e)
-        {
-            ConfigurationException ex = new ConfigurationException(e.getMessage());
-            ex.initCause(e);
-            throw ex;
+            return FBUtilities.getComparator(compareWith);
         }
-        catch (IllegalAccessException e)
-        {
-            ConfigurationException ex = new ConfigurationException(e.getMessage());
-            ex.initCause(e);
-            throw ex;
-        }
-        catch (InvocationTargetException e)
-        {
-            ConfigurationException ex = new ConfigurationException(e.getMessage());
-            ex.initCause(e);
-            throw ex;
-        }
-        catch (NoSuchMethodException e)
+        catch (Exception e)
         {
             ConfigurationException ex = new ConfigurationException(e.getMessage());
             ex.initCause(e);
@@ -1128,6 +1107,11 @@ public class DatabaseDescriptor
     public static long getRpcTimeout()
     {
         return rpcTimeoutInMillis;
+    }
+
+    public static int getPhiConvictThreshold()
+    {
+        return phiConvictThreshold;
     }
 
     public static int getConsistencyThreads()

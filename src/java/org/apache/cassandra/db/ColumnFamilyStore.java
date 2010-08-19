@@ -32,12 +32,12 @@ import java.util.regex.Pattern;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
-import org.apache.log4j.Logger;
-import org.apache.commons.collections.IteratorUtils;
-
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import org.apache.log4j.Logger;
+import org.apache.commons.collections.IteratorUtils;
+
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -81,14 +81,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                                                Runtime.getRuntime().availableProcessors(),
                                                Integer.MAX_VALUE,
                                                TimeUnit.SECONDS,
-                                               new LinkedBlockingQueue<Runnable>(1 + Runtime.getRuntime().availableProcessors()),
+                                               new LinkedBlockingQueue<Runnable>(Runtime.getRuntime().availableProcessors()),
                                                new NamedThreadFactory("FLUSH-SORTER-POOL"));
     private static ExecutorService flushWriter_
             = new JMXEnabledThreadPoolExecutor(1,
                                                DatabaseDescriptor.getAllDataFileLocations().length,
                                                Integer.MAX_VALUE,
                                                TimeUnit.SECONDS,
-                                               new LinkedBlockingQueue<Runnable>(1 + 2 * DatabaseDescriptor.getAllDataFileLocations().length),
+                                               new LinkedBlockingQueue<Runnable>(DatabaseDescriptor.getAllDataFileLocations().length),
                                                new NamedThreadFactory("FLUSH-WRITER-POOL"));
     private static ExecutorService commitLogUpdater_ = new JMXEnabledThreadPoolExecutor("MEMTABLE-POST-FLUSHER");
 
@@ -916,7 +916,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
        range_slice.  still opens one randomaccessfile per key, which sucks.  something like compactioniterator
        would be better.
      */
-    private boolean getKeyRange(List<String> keys, final AbstractBounds range, int maxResults)
+    private void getKeyRange(List<String> keys, final AbstractBounds range, int maxResults)
     throws IOException, ExecutionException, InterruptedException
     {
         final DecoratedKey startWith = new DecoratedKey(range.left, null);
@@ -995,21 +995,22 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 if (!stopAt.isEmpty() && stopAt.compareTo(current) < 0)
                 {
-                    return true;
+                    return;
                 }
 
                 if (range instanceof Bounds || !first || !current.equals(startWith))
                 {
+                    if (logger_.isDebugEnabled())
+                        logger_.debug("scanned " + current);
                     keys.add(current.key);
                 }
                 first = false;
 
                 if (keys.size() >= maxResults)
                 {
-                    return true;
+                    return;
                 }
             }
-            return false;
         }
         finally
         {
@@ -1038,23 +1039,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     throws IOException, ExecutionException, InterruptedException
     {
         List<String> keys = new ArrayList<String>();
-        boolean completed;
-        if ((range instanceof Bounds || !((Range)range).isWrapAround()))
-        {
-            completed = getKeyRange(keys, range, keyMax);
-        }
-        else
-        {
-            // wrapped range
-            Token min = StorageService.getPartitioner().getMinimumToken();
-            Range first = new Range(range.left, min);
-            completed = getKeyRange(keys, first, keyMax);
-            if (!completed && min.compareTo(range.right) < 0)
-            {
-                Range second = new Range(min, range.right);
-                getKeyRange(keys, second, keyMax);
-            }
-        }
+        assert range instanceof Bounds
+               || (!((Range)range).isWrapAround() || range.right.equals(StorageService.getPartitioner().getMinimumToken()))
+               : range;
+        getKeyRange(keys, range, keyMax);
         List<Row> rows = new ArrayList<Row>(keys.size());
         final QueryPath queryPath =  new QueryPath(columnFamily_, super_column, null);
         final SortedSet<byte[]> columnNameSet = new TreeSet<byte[]>(getComparator());
@@ -1166,6 +1154,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         ssTables_.getRowCache().clear();
     }
 
+    public int getRowCacheSize()
+    {
+        return ssTables_.getRowCache().getCapacity();
+    }
+
+    public int getKeyCacheSize()
+    {
+        return ssTables_.getKeyCache().getCapacity();
+    }
+
     public static Iterable<ColumnFamilyStore> all()
     {
         Iterable<ColumnFamilyStore>[] stores = new Iterable[DatabaseDescriptor.getTables().size()];
@@ -1202,5 +1200,53 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public Set<Memtable> getMemtablesPendingFlush()
     {
         return memtablesPendingFlush;
+    }
+
+    public long getBloomFilterFalsePositives()
+    {
+        long count = 0L;
+        for (SSTableReader sstable: getSSTables())
+        {
+            count += sstable.getBloomFilterFalsePositiveCount();
+        }
+        return count;
+    }
+
+    public long getRecentBloomFilterFalsePositives()
+    {
+        long count = 0L;
+        for (SSTableReader sstable: getSSTables())
+        {
+            count += sstable.getRecentBloomFilterFalsePositiveCount();
+        }
+        return count;
+    }
+
+    public double getBloomFilterFalseRatio()
+    {
+        Long falseCount = 0L;
+        Long trueCount = 0L;
+        for (SSTableReader sstable: getSSTables())
+        {
+            falseCount += sstable.getBloomFilterFalsePositiveCount();
+            trueCount += sstable.getBloomFilterTruePositiveCount();
+        }
+        if (falseCount.equals(0L) && trueCount.equals(0L))
+            return 0d;
+        return falseCount.doubleValue() / (trueCount.doubleValue() + falseCount.doubleValue());
+    }
+
+    public double getRecentBloomFilterFalseRatio()
+    {
+        Long falseCount = 0L;
+        Long trueCount = 0L;
+        for (SSTableReader sstable: getSSTables())
+        {
+            falseCount += sstable.getRecentBloomFilterFalsePositiveCount();
+            trueCount += sstable.getRecentBloomFilterTruePositiveCount();
+        }
+        if (falseCount.equals(0L) && trueCount.equals(0L))
+            return 0d;
+        return falseCount.doubleValue() / (trueCount.doubleValue() + falseCount.doubleValue());
     }
 }

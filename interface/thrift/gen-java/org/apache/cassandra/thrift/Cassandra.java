@@ -204,7 +204,12 @@ public class Cassandra {
      * 
      * @param keyspace
      */
-    public List<TokenRange> describe_ring(String keyspace) throws TException;
+    public List<TokenRange> describe_ring(String keyspace) throws InvalidRequestException, TException;
+
+    /**
+     * returns the partitioner used by this cluster
+     */
+    public String describe_partitioner() throws TException;
 
     /**
      * describe specified keyspace
@@ -948,7 +953,7 @@ public class Cassandra {
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_version failed: unknown result");
     }
 
-    public List<TokenRange> describe_ring(String keyspace) throws TException
+    public List<TokenRange> describe_ring(String keyspace) throws InvalidRequestException, TException
     {
       send_describe_ring(keyspace);
       return recv_describe_ring();
@@ -964,7 +969,7 @@ public class Cassandra {
       oprot_.getTransport().flush();
     }
 
-    public List<TokenRange> recv_describe_ring() throws TException
+    public List<TokenRange> recv_describe_ring() throws InvalidRequestException, TException
     {
       TMessage msg = iprot_.readMessageBegin();
       if (msg.type == TMessageType.EXCEPTION) {
@@ -978,7 +983,42 @@ public class Cassandra {
       if (result.isSetSuccess()) {
         return result.success;
       }
+      if (result.ire != null) {
+        throw result.ire;
+      }
       throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_ring failed: unknown result");
+    }
+
+    public String describe_partitioner() throws TException
+    {
+      send_describe_partitioner();
+      return recv_describe_partitioner();
+    }
+
+    public void send_describe_partitioner() throws TException
+    {
+      oprot_.writeMessageBegin(new TMessage("describe_partitioner", TMessageType.CALL, seqid_));
+      describe_partitioner_args args = new describe_partitioner_args();
+      args.write(oprot_);
+      oprot_.writeMessageEnd();
+      oprot_.getTransport().flush();
+    }
+
+    public String recv_describe_partitioner() throws TException
+    {
+      TMessage msg = iprot_.readMessageBegin();
+      if (msg.type == TMessageType.EXCEPTION) {
+        TApplicationException x = TApplicationException.read(iprot_);
+        iprot_.readMessageEnd();
+        throw x;
+      }
+      describe_partitioner_result result = new describe_partitioner_result();
+      result.read(iprot_);
+      iprot_.readMessageEnd();
+      if (result.isSetSuccess()) {
+        return result.success;
+      }
+      throw new TApplicationException(TApplicationException.MISSING_RESULT, "describe_partitioner failed: unknown result");
     }
 
     public Map<String,Map<String,String>> describe_keyspace(String keyspace) throws NotFoundException, TException
@@ -1076,6 +1116,7 @@ public class Cassandra {
       processMap_.put("describe_cluster_name", new describe_cluster_name());
       processMap_.put("describe_version", new describe_version());
       processMap_.put("describe_ring", new describe_ring());
+      processMap_.put("describe_partitioner", new describe_partitioner());
       processMap_.put("describe_keyspace", new describe_keyspace());
       processMap_.put("describe_splits", new describe_splits());
     }
@@ -1757,8 +1798,46 @@ public class Cassandra {
         }
         iprot.readMessageEnd();
         describe_ring_result result = new describe_ring_result();
-        result.success = iface_.describe_ring(args.keyspace);
+        try {
+          result.success = iface_.describe_ring(args.keyspace);
+        } catch (InvalidRequestException ire) {
+          result.ire = ire;
+        } catch (Throwable th) {
+          LOGGER.error("Internal error processing describe_ring", th);
+          TApplicationException x = new TApplicationException(TApplicationException.INTERNAL_ERROR, "Internal error processing describe_ring");
+          oprot.writeMessageBegin(new TMessage("describe_ring", TMessageType.EXCEPTION, seqid));
+          x.write(oprot);
+          oprot.writeMessageEnd();
+          oprot.getTransport().flush();
+          return;
+        }
         oprot.writeMessageBegin(new TMessage("describe_ring", TMessageType.REPLY, seqid));
+        result.write(oprot);
+        oprot.writeMessageEnd();
+        oprot.getTransport().flush();
+      }
+
+    }
+
+    private class describe_partitioner implements ProcessFunction {
+      public void process(int seqid, TProtocol iprot, TProtocol oprot) throws TException
+      {
+        describe_partitioner_args args = new describe_partitioner_args();
+        try {
+          args.read(iprot);
+        } catch (TProtocolException e) {
+          iprot.readMessageEnd();
+          TApplicationException x = new TApplicationException(TApplicationException.PROTOCOL_ERROR, e.getMessage());
+          oprot.writeMessageBegin(new TMessage("describe_partitioner", TMessageType.EXCEPTION, seqid));
+          x.write(oprot);
+          oprot.writeMessageEnd();
+          oprot.getTransport().flush();
+          return;
+        }
+        iprot.readMessageEnd();
+        describe_partitioner_result result = new describe_partitioner_result();
+        result.success = iface_.describe_partitioner();
+        oprot.writeMessageBegin(new TMessage("describe_partitioner", TMessageType.REPLY, seqid));
         result.write(oprot);
         oprot.writeMessageEnd();
         oprot.getTransport().flush();
@@ -18298,8 +18377,601 @@ public class Cassandra {
     private static final TStruct STRUCT_DESC = new TStruct("describe_ring_result");
 
     private static final TField SUCCESS_FIELD_DESC = new TField("success", TType.LIST, (short)0);
+    private static final TField IRE_FIELD_DESC = new TField("ire", TType.STRUCT, (short)1);
 
     public List<TokenRange> success;
+    public InvalidRequestException ire;
+
+    /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
+    public enum _Fields implements TFieldIdEnum {
+      SUCCESS((short)0, "success"),
+      IRE((short)1, "ire");
+
+      private static final Map<Integer, _Fields> byId = new HashMap<Integer, _Fields>();
+      private static final Map<String, _Fields> byName = new HashMap<String, _Fields>();
+
+      static {
+        for (_Fields field : EnumSet.allOf(_Fields.class)) {
+          byId.put((int)field._thriftId, field);
+          byName.put(field.getFieldName(), field);
+        }
+      }
+
+      /**
+       * Find the _Fields constant that matches fieldId, or null if its not found.
+       */
+      public static _Fields findByThriftId(int fieldId) {
+        return byId.get(fieldId);
+      }
+
+      /**
+       * Find the _Fields constant that matches fieldId, throwing an exception
+       * if it is not found.
+       */
+      public static _Fields findByThriftIdOrThrow(int fieldId) {
+        _Fields fields = findByThriftId(fieldId);
+        if (fields == null) throw new IllegalArgumentException("Field " + fieldId + " doesn't exist!");
+        return fields;
+      }
+
+      /**
+       * Find the _Fields constant that matches name, or null if its not found.
+       */
+      public static _Fields findByName(String name) {
+        return byName.get(name);
+      }
+
+      private final short _thriftId;
+      private final String _fieldName;
+
+      _Fields(short thriftId, String fieldName) {
+        _thriftId = thriftId;
+        _fieldName = fieldName;
+      }
+
+      public short getThriftFieldId() {
+        return _thriftId;
+      }
+
+      public String getFieldName() {
+        return _fieldName;
+      }
+    }
+
+    // isset id assignments
+
+    public static final Map<_Fields, FieldMetaData> metaDataMap = Collections.unmodifiableMap(new EnumMap<_Fields, FieldMetaData>(_Fields.class) {{
+      put(_Fields.SUCCESS, new FieldMetaData("success", TFieldRequirementType.DEFAULT, 
+          new ListMetaData(TType.LIST, 
+              new StructMetaData(TType.STRUCT, TokenRange.class))));
+      put(_Fields.IRE, new FieldMetaData("ire", TFieldRequirementType.DEFAULT, 
+          new FieldValueMetaData(TType.STRUCT)));
+    }});
+
+    static {
+      FieldMetaData.addStructMetaDataMap(describe_ring_result.class, metaDataMap);
+    }
+
+    public describe_ring_result() {
+    }
+
+    public describe_ring_result(
+      List<TokenRange> success,
+      InvalidRequestException ire)
+    {
+      this();
+      this.success = success;
+      this.ire = ire;
+    }
+
+    /**
+     * Performs a deep copy on <i>other</i>.
+     */
+    public describe_ring_result(describe_ring_result other) {
+      if (other.isSetSuccess()) {
+        List<TokenRange> __this__success = new ArrayList<TokenRange>();
+        for (TokenRange other_element : other.success) {
+          __this__success.add(new TokenRange(other_element));
+        }
+        this.success = __this__success;
+      }
+      if (other.isSetIre()) {
+        this.ire = new InvalidRequestException(other.ire);
+      }
+    }
+
+    public describe_ring_result deepCopy() {
+      return new describe_ring_result(this);
+    }
+
+    @Deprecated
+    public describe_ring_result clone() {
+      return new describe_ring_result(this);
+    }
+
+    public int getSuccessSize() {
+      return (this.success == null) ? 0 : this.success.size();
+    }
+
+    public java.util.Iterator<TokenRange> getSuccessIterator() {
+      return (this.success == null) ? null : this.success.iterator();
+    }
+
+    public void addToSuccess(TokenRange elem) {
+      if (this.success == null) {
+        this.success = new ArrayList<TokenRange>();
+      }
+      this.success.add(elem);
+    }
+
+    public List<TokenRange> getSuccess() {
+      return this.success;
+    }
+
+    public describe_ring_result setSuccess(List<TokenRange> success) {
+      this.success = success;
+      return this;
+    }
+
+    public void unsetSuccess() {
+      this.success = null;
+    }
+
+    /** Returns true if field success is set (has been asigned a value) and false otherwise */
+    public boolean isSetSuccess() {
+      return this.success != null;
+    }
+
+    public void setSuccessIsSet(boolean value) {
+      if (!value) {
+        this.success = null;
+      }
+    }
+
+    public InvalidRequestException getIre() {
+      return this.ire;
+    }
+
+    public describe_ring_result setIre(InvalidRequestException ire) {
+      this.ire = ire;
+      return this;
+    }
+
+    public void unsetIre() {
+      this.ire = null;
+    }
+
+    /** Returns true if field ire is set (has been asigned a value) and false otherwise */
+    public boolean isSetIre() {
+      return this.ire != null;
+    }
+
+    public void setIreIsSet(boolean value) {
+      if (!value) {
+        this.ire = null;
+      }
+    }
+
+    public void setFieldValue(_Fields field, Object value) {
+      switch (field) {
+      case SUCCESS:
+        if (value == null) {
+          unsetSuccess();
+        } else {
+          setSuccess((List<TokenRange>)value);
+        }
+        break;
+
+      case IRE:
+        if (value == null) {
+          unsetIre();
+        } else {
+          setIre((InvalidRequestException)value);
+        }
+        break;
+
+      }
+    }
+
+    public void setFieldValue(int fieldID, Object value) {
+      setFieldValue(_Fields.findByThriftIdOrThrow(fieldID), value);
+    }
+
+    public Object getFieldValue(_Fields field) {
+      switch (field) {
+      case SUCCESS:
+        return getSuccess();
+
+      case IRE:
+        return getIre();
+
+      }
+      throw new IllegalStateException();
+    }
+
+    public Object getFieldValue(int fieldId) {
+      return getFieldValue(_Fields.findByThriftIdOrThrow(fieldId));
+    }
+
+    /** Returns true if field corresponding to fieldID is set (has been asigned a value) and false otherwise */
+    public boolean isSet(_Fields field) {
+      switch (field) {
+      case SUCCESS:
+        return isSetSuccess();
+      case IRE:
+        return isSetIre();
+      }
+      throw new IllegalStateException();
+    }
+
+    public boolean isSet(int fieldID) {
+      return isSet(_Fields.findByThriftIdOrThrow(fieldID));
+    }
+
+    @Override
+    public boolean equals(Object that) {
+      if (that == null)
+        return false;
+      if (that instanceof describe_ring_result)
+        return this.equals((describe_ring_result)that);
+      return false;
+    }
+
+    public boolean equals(describe_ring_result that) {
+      if (that == null)
+        return false;
+
+      boolean this_present_success = true && this.isSetSuccess();
+      boolean that_present_success = true && that.isSetSuccess();
+      if (this_present_success || that_present_success) {
+        if (!(this_present_success && that_present_success))
+          return false;
+        if (!this.success.equals(that.success))
+          return false;
+      }
+
+      boolean this_present_ire = true && this.isSetIre();
+      boolean that_present_ire = true && that.isSetIre();
+      if (this_present_ire || that_present_ire) {
+        if (!(this_present_ire && that_present_ire))
+          return false;
+        if (!this.ire.equals(that.ire))
+          return false;
+      }
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      return 0;
+    }
+
+    public int compareTo(describe_ring_result other) {
+      if (!getClass().equals(other.getClass())) {
+        return getClass().getName().compareTo(other.getClass().getName());
+      }
+
+      int lastComparison = 0;
+      describe_ring_result typedOther = (describe_ring_result)other;
+
+      lastComparison = Boolean.valueOf(isSetSuccess()).compareTo(typedOther.isSetSuccess());
+      if (lastComparison != 0) {
+        return lastComparison;
+      }
+      if (isSetSuccess()) {        lastComparison = TBaseHelper.compareTo(success, typedOther.success);
+        if (lastComparison != 0) {
+          return lastComparison;
+        }
+      }
+      lastComparison = Boolean.valueOf(isSetIre()).compareTo(typedOther.isSetIre());
+      if (lastComparison != 0) {
+        return lastComparison;
+      }
+      if (isSetIre()) {        lastComparison = TBaseHelper.compareTo(ire, typedOther.ire);
+        if (lastComparison != 0) {
+          return lastComparison;
+        }
+      }
+      return 0;
+    }
+
+    public void read(TProtocol iprot) throws TException {
+      TField field;
+      iprot.readStructBegin();
+      while (true)
+      {
+        field = iprot.readFieldBegin();
+        if (field.type == TType.STOP) { 
+          break;
+        }
+        switch (field.id) {
+          case 0: // SUCCESS
+            if (field.type == TType.LIST) {
+              {
+                TList _list86 = iprot.readListBegin();
+                this.success = new ArrayList<TokenRange>(_list86.size);
+                for (int _i87 = 0; _i87 < _list86.size; ++_i87)
+                {
+                  TokenRange _elem88;
+                  _elem88 = new TokenRange();
+                  _elem88.read(iprot);
+                  this.success.add(_elem88);
+                }
+                iprot.readListEnd();
+              }
+            } else { 
+              TProtocolUtil.skip(iprot, field.type);
+            }
+            break;
+          case 1: // IRE
+            if (field.type == TType.STRUCT) {
+              this.ire = new InvalidRequestException();
+              this.ire.read(iprot);
+            } else { 
+              TProtocolUtil.skip(iprot, field.type);
+            }
+            break;
+          default:
+            TProtocolUtil.skip(iprot, field.type);
+        }
+        iprot.readFieldEnd();
+      }
+      iprot.readStructEnd();
+
+      // check for required fields of primitive type, which can't be checked in the validate method
+      validate();
+    }
+
+    public void write(TProtocol oprot) throws TException {
+      oprot.writeStructBegin(STRUCT_DESC);
+
+      if (this.isSetSuccess()) {
+        oprot.writeFieldBegin(SUCCESS_FIELD_DESC);
+        {
+          oprot.writeListBegin(new TList(TType.STRUCT, this.success.size()));
+          for (TokenRange _iter89 : this.success)
+          {
+            _iter89.write(oprot);
+          }
+          oprot.writeListEnd();
+        }
+        oprot.writeFieldEnd();
+      } else if (this.isSetIre()) {
+        oprot.writeFieldBegin(IRE_FIELD_DESC);
+        this.ire.write(oprot);
+        oprot.writeFieldEnd();
+      }
+      oprot.writeFieldStop();
+      oprot.writeStructEnd();
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder sb = new StringBuilder("describe_ring_result(");
+      boolean first = true;
+
+      sb.append("success:");
+      if (this.success == null) {
+        sb.append("null");
+      } else {
+        sb.append(this.success);
+      }
+      first = false;
+      if (!first) sb.append(", ");
+      sb.append("ire:");
+      if (this.ire == null) {
+        sb.append("null");
+      } else {
+        sb.append(this.ire);
+      }
+      first = false;
+      sb.append(")");
+      return sb.toString();
+    }
+
+    public void validate() throws TException {
+      // check for required fields
+    }
+
+  }
+
+  public static class describe_partitioner_args implements TBase<describe_partitioner_args._Fields>, java.io.Serializable, Cloneable, Comparable<describe_partitioner_args>   {
+    private static final TStruct STRUCT_DESC = new TStruct("describe_partitioner_args");
+
+
+
+    /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
+    public enum _Fields implements TFieldIdEnum {
+;
+
+      private static final Map<Integer, _Fields> byId = new HashMap<Integer, _Fields>();
+      private static final Map<String, _Fields> byName = new HashMap<String, _Fields>();
+
+      static {
+        for (_Fields field : EnumSet.allOf(_Fields.class)) {
+          byId.put((int)field._thriftId, field);
+          byName.put(field.getFieldName(), field);
+        }
+      }
+
+      /**
+       * Find the _Fields constant that matches fieldId, or null if its not found.
+       */
+      public static _Fields findByThriftId(int fieldId) {
+        return byId.get(fieldId);
+      }
+
+      /**
+       * Find the _Fields constant that matches fieldId, throwing an exception
+       * if it is not found.
+       */
+      public static _Fields findByThriftIdOrThrow(int fieldId) {
+        _Fields fields = findByThriftId(fieldId);
+        if (fields == null) throw new IllegalArgumentException("Field " + fieldId + " doesn't exist!");
+        return fields;
+      }
+
+      /**
+       * Find the _Fields constant that matches name, or null if its not found.
+       */
+      public static _Fields findByName(String name) {
+        return byName.get(name);
+      }
+
+      private final short _thriftId;
+      private final String _fieldName;
+
+      _Fields(short thriftId, String fieldName) {
+        _thriftId = thriftId;
+        _fieldName = fieldName;
+      }
+
+      public short getThriftFieldId() {
+        return _thriftId;
+      }
+
+      public String getFieldName() {
+        return _fieldName;
+      }
+    }
+    public static final Map<_Fields, FieldMetaData> metaDataMap = Collections.unmodifiableMap(new EnumMap<_Fields, FieldMetaData>(_Fields.class) {{
+    }});
+
+    static {
+      FieldMetaData.addStructMetaDataMap(describe_partitioner_args.class, metaDataMap);
+    }
+
+    public describe_partitioner_args() {
+    }
+
+    /**
+     * Performs a deep copy on <i>other</i>.
+     */
+    public describe_partitioner_args(describe_partitioner_args other) {
+    }
+
+    public describe_partitioner_args deepCopy() {
+      return new describe_partitioner_args(this);
+    }
+
+    @Deprecated
+    public describe_partitioner_args clone() {
+      return new describe_partitioner_args(this);
+    }
+
+    public void setFieldValue(_Fields field, Object value) {
+      switch (field) {
+      }
+    }
+
+    public void setFieldValue(int fieldID, Object value) {
+      setFieldValue(_Fields.findByThriftIdOrThrow(fieldID), value);
+    }
+
+    public Object getFieldValue(_Fields field) {
+      switch (field) {
+      }
+      throw new IllegalStateException();
+    }
+
+    public Object getFieldValue(int fieldId) {
+      return getFieldValue(_Fields.findByThriftIdOrThrow(fieldId));
+    }
+
+    /** Returns true if field corresponding to fieldID is set (has been asigned a value) and false otherwise */
+    public boolean isSet(_Fields field) {
+      switch (field) {
+      }
+      throw new IllegalStateException();
+    }
+
+    public boolean isSet(int fieldID) {
+      return isSet(_Fields.findByThriftIdOrThrow(fieldID));
+    }
+
+    @Override
+    public boolean equals(Object that) {
+      if (that == null)
+        return false;
+      if (that instanceof describe_partitioner_args)
+        return this.equals((describe_partitioner_args)that);
+      return false;
+    }
+
+    public boolean equals(describe_partitioner_args that) {
+      if (that == null)
+        return false;
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      return 0;
+    }
+
+    public int compareTo(describe_partitioner_args other) {
+      if (!getClass().equals(other.getClass())) {
+        return getClass().getName().compareTo(other.getClass().getName());
+      }
+
+      int lastComparison = 0;
+      describe_partitioner_args typedOther = (describe_partitioner_args)other;
+
+      return 0;
+    }
+
+    public void read(TProtocol iprot) throws TException {
+      TField field;
+      iprot.readStructBegin();
+      while (true)
+      {
+        field = iprot.readFieldBegin();
+        if (field.type == TType.STOP) { 
+          break;
+        }
+        switch (field.id) {
+          default:
+            TProtocolUtil.skip(iprot, field.type);
+        }
+        iprot.readFieldEnd();
+      }
+      iprot.readStructEnd();
+
+      // check for required fields of primitive type, which can't be checked in the validate method
+      validate();
+    }
+
+    public void write(TProtocol oprot) throws TException {
+      validate();
+
+      oprot.writeStructBegin(STRUCT_DESC);
+      oprot.writeFieldStop();
+      oprot.writeStructEnd();
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder sb = new StringBuilder("describe_partitioner_args(");
+      boolean first = true;
+
+      sb.append(")");
+      return sb.toString();
+    }
+
+    public void validate() throws TException {
+      // check for required fields
+    }
+
+  }
+
+  public static class describe_partitioner_result implements TBase<describe_partitioner_result._Fields>, java.io.Serializable, Cloneable, Comparable<describe_partitioner_result>   {
+    private static final TStruct STRUCT_DESC = new TStruct("describe_partitioner_result");
+
+    private static final TField SUCCESS_FIELD_DESC = new TField("success", TType.STRING, (short)0);
+
+    public String success;
 
     /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
     public enum _Fields implements TFieldIdEnum {
@@ -18360,19 +19032,18 @@ public class Cassandra {
 
     public static final Map<_Fields, FieldMetaData> metaDataMap = Collections.unmodifiableMap(new EnumMap<_Fields, FieldMetaData>(_Fields.class) {{
       put(_Fields.SUCCESS, new FieldMetaData("success", TFieldRequirementType.DEFAULT, 
-          new ListMetaData(TType.LIST, 
-              new StructMetaData(TType.STRUCT, TokenRange.class))));
+          new FieldValueMetaData(TType.STRING)));
     }});
 
     static {
-      FieldMetaData.addStructMetaDataMap(describe_ring_result.class, metaDataMap);
+      FieldMetaData.addStructMetaDataMap(describe_partitioner_result.class, metaDataMap);
     }
 
-    public describe_ring_result() {
+    public describe_partitioner_result() {
     }
 
-    public describe_ring_result(
-      List<TokenRange> success)
+    public describe_partitioner_result(
+      String success)
     {
       this();
       this.success = success;
@@ -18381,45 +19052,26 @@ public class Cassandra {
     /**
      * Performs a deep copy on <i>other</i>.
      */
-    public describe_ring_result(describe_ring_result other) {
+    public describe_partitioner_result(describe_partitioner_result other) {
       if (other.isSetSuccess()) {
-        List<TokenRange> __this__success = new ArrayList<TokenRange>();
-        for (TokenRange other_element : other.success) {
-          __this__success.add(new TokenRange(other_element));
-        }
-        this.success = __this__success;
+        this.success = other.success;
       }
     }
 
-    public describe_ring_result deepCopy() {
-      return new describe_ring_result(this);
+    public describe_partitioner_result deepCopy() {
+      return new describe_partitioner_result(this);
     }
 
     @Deprecated
-    public describe_ring_result clone() {
-      return new describe_ring_result(this);
+    public describe_partitioner_result clone() {
+      return new describe_partitioner_result(this);
     }
 
-    public int getSuccessSize() {
-      return (this.success == null) ? 0 : this.success.size();
-    }
-
-    public java.util.Iterator<TokenRange> getSuccessIterator() {
-      return (this.success == null) ? null : this.success.iterator();
-    }
-
-    public void addToSuccess(TokenRange elem) {
-      if (this.success == null) {
-        this.success = new ArrayList<TokenRange>();
-      }
-      this.success.add(elem);
-    }
-
-    public List<TokenRange> getSuccess() {
+    public String getSuccess() {
       return this.success;
     }
 
-    public describe_ring_result setSuccess(List<TokenRange> success) {
+    public describe_partitioner_result setSuccess(String success) {
       this.success = success;
       return this;
     }
@@ -18445,7 +19097,7 @@ public class Cassandra {
         if (value == null) {
           unsetSuccess();
         } else {
-          setSuccess((List<TokenRange>)value);
+          setSuccess((String)value);
         }
         break;
 
@@ -18486,12 +19138,12 @@ public class Cassandra {
     public boolean equals(Object that) {
       if (that == null)
         return false;
-      if (that instanceof describe_ring_result)
-        return this.equals((describe_ring_result)that);
+      if (that instanceof describe_partitioner_result)
+        return this.equals((describe_partitioner_result)that);
       return false;
     }
 
-    public boolean equals(describe_ring_result that) {
+    public boolean equals(describe_partitioner_result that) {
       if (that == null)
         return false;
 
@@ -18512,13 +19164,13 @@ public class Cassandra {
       return 0;
     }
 
-    public int compareTo(describe_ring_result other) {
+    public int compareTo(describe_partitioner_result other) {
       if (!getClass().equals(other.getClass())) {
         return getClass().getName().compareTo(other.getClass().getName());
       }
 
       int lastComparison = 0;
-      describe_ring_result typedOther = (describe_ring_result)other;
+      describe_partitioner_result typedOther = (describe_partitioner_result)other;
 
       lastComparison = Boolean.valueOf(isSetSuccess()).compareTo(typedOther.isSetSuccess());
       if (lastComparison != 0) {
@@ -18543,19 +19195,8 @@ public class Cassandra {
         }
         switch (field.id) {
           case 0: // SUCCESS
-            if (field.type == TType.LIST) {
-              {
-                TList _list86 = iprot.readListBegin();
-                this.success = new ArrayList<TokenRange>(_list86.size);
-                for (int _i87 = 0; _i87 < _list86.size; ++_i87)
-                {
-                  TokenRange _elem88;
-                  _elem88 = new TokenRange();
-                  _elem88.read(iprot);
-                  this.success.add(_elem88);
-                }
-                iprot.readListEnd();
-              }
+            if (field.type == TType.STRING) {
+              this.success = iprot.readString();
             } else { 
               TProtocolUtil.skip(iprot, field.type);
             }
@@ -18576,14 +19217,7 @@ public class Cassandra {
 
       if (this.isSetSuccess()) {
         oprot.writeFieldBegin(SUCCESS_FIELD_DESC);
-        {
-          oprot.writeListBegin(new TList(TType.STRUCT, this.success.size()));
-          for (TokenRange _iter89 : this.success)
-          {
-            _iter89.write(oprot);
-          }
-          oprot.writeListEnd();
-        }
+        oprot.writeString(this.success);
         oprot.writeFieldEnd();
       }
       oprot.writeFieldStop();
@@ -18592,7 +19226,7 @@ public class Cassandra {
 
     @Override
     public String toString() {
-      StringBuilder sb = new StringBuilder("describe_ring_result(");
+      StringBuilder sb = new StringBuilder("describe_partitioner_result(");
       boolean first = true;
 
       sb.append("success:");

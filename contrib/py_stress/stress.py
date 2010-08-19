@@ -53,6 +53,10 @@ except ImportError:
     print "Cassandra thrift bindings not found, please run 'ant gen-thrift-py'"
     sys.exit(2)
 
+try:
+    from thrift.protocol import fastbinary
+except ImportError:
+    print "WARNING: thrift binary extension not found, benchmark will not be accurate!"
 
 parser = OptionParser()
 parser.add_option('-n', '--num-keys', type="int", dest="numkeys",
@@ -63,7 +67,7 @@ parser.add_option('-c', '--columns', type="int", dest="columns",
                   help="Number of columns per key", default=5)
 parser.add_option('-d', '--nodes', type="string", dest="nodes",
                   help="Host nodes (comma separated)", default="localhost")
-parser.add_option('-s', '--stdev', type="int", dest="stdev", default=0.1,
+parser.add_option('-s', '--stdev', type="float", dest="stdev", default=0.1,
                   help="standard deviation factor")
 parser.add_option('-r', '--random', action="store_true", dest="random",
                   help="use random key generator (stdev will have no effect)")

@@ -281,16 +281,17 @@ public class ThriftValidation
 
     public static void validateDeletion(String keyspace, String cfName, Deletion del) throws InvalidRequestException
     {
-        if (del.super_column == null && del.predicate == null)
-        {
-            throw new InvalidRequestException("A Deletion must have a SuperColumn, a SlicePredicate or both.");
-        }
-
         if (del.predicate != null)
         {
             validateSlicePredicate(keyspace, cfName, del.super_column, del.predicate);
             if (del.predicate.slice_range != null)
                 throw new InvalidRequestException("Deletion does not yet support SliceRange predicates.");
+        }
+
+        if (DatabaseDescriptor.getColumnFamilyType(keyspace, cfName).equals("Standard") && del.super_column != null)
+        {
+            String msg = String.format("deletion of super_column is not possible on a standard ColumnFamily (KeySpace=%s ColumnFamily=%s Deletion=%s)", keyspace, cfName, del);
+            throw new InvalidRequestException(msg);
         }
     }
 
