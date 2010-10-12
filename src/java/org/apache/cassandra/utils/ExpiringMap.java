@@ -98,15 +98,20 @@ public class ExpiringMap<K, V>
             {
                 K key = entry.getKey();
                 V value = entry.getValue();
-                
-                ICacheExpungeHook<K, V> hook = hooks_.remove(key);
-                if (hook != null)
+                try
                 {
-                    hook.callMe(key, value);
-                }
-                else if (globalHook_ != null)
+                    ICacheExpungeHook<K, V> hook = hooks_.remove(key);
+                    if (hook != null)
+                    {
+                        hook.callMe(key, value);
+                    }
+                    else if (globalHook_ != null)
+                    {
+                        globalHook_.callMe(key, value);
+                    }
+                } catch (UnsupportedOperationException ue)
                 {
-                    globalHook_.callMe(key, value);
+                    LOGGER.info("Got an unsupported operation exception, moving on.");
                 }
             }
             expungedValues.clear();
