@@ -23,6 +23,11 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.BitSet;
 
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.util.LinkedList;
+import java.util.List;
+
 import org.apache.cassandra.io.ICompactSerializer;
 
 import org.apache.log4j.Logger;
@@ -32,7 +37,7 @@ public class BloomFilter extends Filter
     private static final Logger logger = Logger.getLogger(BloomFilter.class);
     static ICompactSerializer<BloomFilter> serializer_ = new BloomFilterSerializer();
 
-    private static final int EXCESS = 20;
+    protected static final int EXCESS = 20;
 
     public static ICompactSerializer<BloomFilter> serializer()
     {
@@ -77,13 +82,26 @@ public class BloomFilter extends Filter
     {
         int maxBucketsPerElement = Math.max(1, maxBucketsPerElement(numElements));
         int bucketsPerElement = Math.min(targetBucketsPerElem, maxBucketsPerElement);
+        if (bucketsPerElement >= targetBucketsPerElem)
+        {
+            BloomCalculations.BloomSpecification spec = BloomCalculations.computeBloomSpec(bucketsPerElement);
+            return new BloomFilter(spec.K, bucketsFor(numElements, spec.bucketsPerElement));
+        }
+        logger.warn(String.format("BigBloomFilter being used!!! Cannot provide optimal BloomFilter for %d elements (%d/%d buckets per element).",
+                                  numElements, bucketsPerElement, targetBucketsPerElem));
+
+        maxBucketsPerElement = Math.max(1, BigBloomFilter.maxBucketsPerElementForBigBloomFilter(numElements));
+        bucketsPerElement    = Math.min(targetBucketsPerElem, maxBucketsPerElement);
         if (bucketsPerElement < targetBucketsPerElem)
         {
-            logger.warn(String.format("Cannot provide an optimal BloomFilter for %d elements (%d/%d buckets per element).",
+            logger.warn(String.format("Cannot provide optimal BigBloomFilter for %d elements (%d/%d buckets per element).",
                                       numElements, bucketsPerElement, targetBucketsPerElem));
         }
+
         BloomCalculations.BloomSpecification spec = BloomCalculations.computeBloomSpec(bucketsPerElement);
-        return new BloomFilter(spec.K, bucketsFor(numElements, spec.bucketsPerElement));
+        return new BigBloomFilter(
+            Math.min((long)Long.MAX_VALUE, numElements * (long)spec.bucketsPerElement + (long)EXCESS),
+            spec.K);
     }
 
     /**
@@ -198,13 +216,47 @@ class BloomFilterSerializer implements ICompactSerializer<BloomFilter>
             throws IOException
     {
         dos.writeInt(bf.getHashCount());
-        BitSetSerializer.serialize(bf.filter(), dos);
+
+        ObjectOutputStream oos = new ObjectOutputStream(dos);
+        if (bf instanceof BigBloomFilter)
+        {
+            for (BitSet bs : ((BigBloomFilter)bf).bigFilter().buckets)
+            {
+                oos.writeObject(bs);
+                oos.flush();
+            }
+            return;
+        }
+
+        // BloomFilter
+        oos.writeObject(bf.filter());
+        oos.flush();
     }
 
     public BloomFilter deserialize(DataInputStream dis) throws IOException
     {
         int hashes = dis.readInt();
-        BitSet bs = BitSetSerializer.deserialize(dis);
-        return new BloomFilter(hashes, bs);
+        
+        ObjectInputStream ois = new ObjectInputStream(dis);
+        try
+        {
+            Object bs = ois.readObject();
+            if (dis.available() == 0)
+                return new BloomFilter(hashes, (BitSet)bs);
+
+            List<BitSet> bsList = new LinkedList<BitSet>();
+            bsList.add((BitSet)bs);
+            while (dis.available() > 0)
+            {
+                bsList.add((BitSet)ois.readObject());
+            }
+            return new BigBloomFilter(
+                new BigBitSet(bsList.toArray(new BitSet[0])),
+                hashes);
+        }
+        catch (ClassNotFoundException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 }
