@@ -164,5 +164,26 @@ public class BigBloomFilter extends BloomFilter
         //XXX: backwards-compatible
         return (int)(filter.size() - filter.cardinality());
     }
+
+    public boolean equals(Object o)
+    {
+        if (!(o instanceof BigBloomFilter))
+            return false;
+
+        BigBloomFilter otherBBF = (BigBloomFilter)o;
+        if (this.hashCount != otherBBF.hashCount)
+            return false;
+
+        BigBitSet otherFilter = otherBBF.filter;
+        if (this.filter.size() != otherFilter.size())
+            return false;
+        for (int i=0; i < filter.buckets.length; i++)
+        {
+            if (!filter.buckets[i].equals(otherFilter.buckets[i]))
+                return false;
+        }
+
+        return true;
+    }
 }
 

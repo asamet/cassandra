@@ -18,6 +18,7 @@
 */
 package org.apache.cassandra.io;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
@@ -26,6 +27,9 @@ import org.junit.Test;
 import org.apache.cassandra.CleanupHelper;
 import org.apache.cassandra.io.util.BufferedRandomAccessFile;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.BigBloomFilter;
+import org.apache.cassandra.utils.BloomFilter;
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -90,6 +94,82 @@ public class SSTableTest extends CleanupHelper
             byte[] bytes2 = new byte[size];
             file.readFully(bytes2);
             assert Arrays.equals(bytes2, map.get(key));
+        }
+    }
+
+    @Test
+    public void testManyWritesBigBloomFilter() throws IOException
+    {
+        TreeMap<String, byte[]> map = new TreeMap<String,byte[]>();
+        for ( int i = 100; i < 1000; ++i )
+        {
+            map.put(Integer.toString(i), ("Avinash Lakshman is a good man: " + i).getBytes());
+        }
+
+        // write
+        SSTableReader ssTable = SSTableUtils.writeRawBigSSTable("Keyspace1", "Standard2", map, 179042688L);
+
+        // verify original
+        verifyManyBigBloomFilter(ssTable);
+        BloomFilter origBF = ssTable.bf;
+
+        // verify serialized
+        File filterFile = new File(ssTable.filterFilename());
+        assert filterFile.exists() : "BloomFilter file still exists!";
+
+        ssTable = SSTableReader.open(ssTable.path); // read the index from disk
+        verifyManyBigBloomFilter(ssTable);
+
+        BloomFilter newBF = ssTable.bf;
+        assert origBF != newBF : "BloomFilter not recovered from disk!";
+        assert ((BigBloomFilter)origBF).equals(newBF) : "BigBloomFilter is not the same!";
+    }
+
+    @Test
+    public void testManyWritesMissingBigBloomFilter() throws IOException
+    {
+        TreeMap<String, byte[]> map = new TreeMap<String,byte[]>();
+        for ( int i = 100; i < 1000; ++i )
+        {
+            map.put(Integer.toString(i), ("Avinash Lakshman is a good man: " + i).getBytes());
+        }
+
+        // write
+        SSTableReader ssTable = SSTableUtils.writeRawBigSSTable("Keyspace1", "Standard2", map, 179042688L);
+        BloomFilter origBF = ssTable.bf;
+
+        // verify original
+        verifyManyBigBloomFilter(ssTable);
+
+        // verify serialized w/o BigBloomFilter file
+        File filterFile = new File(ssTable.filterFilename());
+        filterFile.delete();
+        filterFile = new File(ssTable.filterFilename());
+        assert !filterFile.exists() : "BloomFilter file still exists!";
+
+        ssTable = SSTableReader.openForcedBigBloomFilter(ssTable.path, StorageService.getPartitioner(), 179042688L); // read the index from disk
+        verifyManyBigBloomFilter(ssTable);
+
+        BloomFilter newBF = ssTable.bf;
+        assert origBF != newBF : "BloomFilter not recovered from disk!";
+        assert ((BigBloomFilter)origBF).equals(newBF) : "BigBloomFilter is not the same!";
+    }
+
+    private void verifyManyBigBloomFilter(SSTableReader sstable) throws IOException
+    {
+        BloomFilter bf = sstable.bf;
+        assert bf instanceof BigBloomFilter : "Not BigBloomFilter!";
+
+        for ( int i = 100; i < 1000; ++i )
+        {
+            String key = Integer.toString(i);
+            assert bf.isPresent(sstable.partitioner.convertToDiskFormat(sstable.partitioner.decorateKey(key))) : "key: " + key + " NOT present in BigBloomFilter!";
+        }
+
+        for ( int i = 0; i < 99; ++i )
+        {
+            String key = Integer.toString(i);
+            assert !bf.isPresent(sstable.partitioner.convertToDiskFormat(sstable.partitioner.decorateKey(key))) : "incorrect key: " + key + " present in BigBloomFilter!";
         }
     }
 }

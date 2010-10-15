@@ -132,6 +132,23 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return sstable;
     }
 
+    /** public, but only for tests */
+    public static SSTableReader openForcedBigBloomFilter(String dataFileName, IPartitioner partitioner, long keyCount) throws IOException
+    {
+        assert partitioner != null;
+
+        long start = System.currentTimeMillis();
+        SSTableReader sstable = new SSTableReader(dataFileName, partitioner);
+        logger.info("Sampling index for " + dataFileName);
+        sstable.loadIndexFile();
+        sstable.bf = sstable.forcedRecoverBloomFilter(keyCount);
+
+        if (logger.isDebugEnabled())
+            logger.debug("INDEX LOAD TIME for "  + dataFileName + ": " + (System.currentTimeMillis() - start) + " ms.");
+
+        return sstable;
+    }
+
     private volatile SSTableDeletingReference phantomReference;
     // jvm can only map up to 2GB at a time, so we split index/data into segments of that size when using mmap i/o
     private final MappedByteBuffer[] indexBuffers;
@@ -229,10 +246,39 @@ public class SSTableReader extends SSTable implements Comparable<SSTableReader>
         return indexSummary.getIndexPositions().size() * IndexSummary.INDEX_INTERVAL;
     }
 
-    private void recoverBloomFilter() throws IOException
+    private BloomFilter forcedRecoverBloomFilter(long keyCount) throws IOException
     {
-//TODO: REMOVE
-System.out.println("recoverBloomFilter: HIT!");
+        int keyRangeFileBufferSize = 256 * 1024;
+        SSTableScanner scanner = getScanner(keyRangeFileBufferSize);
+
+        List<String> diskKeys = new LinkedList<String>();
+        while (scanner.hasNext())
+        {
+            IteratingRow row = scanner.next();
+            String diskKey = partitioner.convertToDiskFormat(row.getKey());
+            diskKeys.add(diskKey);
+        }
+        scanner.close();
+
+        BloomFilter recoveredBF = BloomFilter.getFilter(keyCount, 15);
+        for (String diskKey : diskKeys)
+        {
+            recoveredBF.add(diskKey);
+        }
+
+        // bloom filter
+        FileOutputStream fos = new FileOutputStream(filterFilename());
+        DataOutputStream stream = new DataOutputStream(fos);
+        BloomFilter.serializer().serialize(recoveredBF, stream);
+        stream.flush();
+        fos.getFD().sync();
+        stream.close();
+
+        return recoveredBF;
+    }
+
+    private BloomFilter recoverBloomFilter() throws IOException
+    {
         int keyRangeFileBufferSize = 256 * 1024;
         SSTableScanner scanner = getScanner(keyRangeFileBufferSize);
 
@@ -258,8 +304,8 @@ System.out.println("recoverBloomFilter: HIT!");
         stream.flush();
         fos.getFD().sync();
         stream.close();
-//TODO: REMOVE
-System.out.println("recoverBloomFilter: END!");
+
+        return recoveredBF;
     }
 
     void loadBloomFilter() throws IOException
@@ -267,7 +313,10 @@ System.out.println("recoverBloomFilter: END!");
         //XXX: test existence, recover if necessary
         File file = new File(filterFilename());
         if (!file.exists())
-            recoverBloomFilter();
+        {
+            bf = recoverBloomFilter();
+            return;
+        }
 
         DataInputStream stream = new DataInputStream(new FileInputStream(filterFilename()));
         try

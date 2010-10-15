@@ -21,6 +21,8 @@ package org.apache.cassandra.io;
 import java.io.File;
 import java.io.IOException;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.Set;
@@ -98,6 +100,18 @@ public class SSTableUtils
     {
         File f = tempSSTableFile(tablename, cfname);
         SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), entries.size(), StorageService.getPartitioner());
+        for (Map.Entry<String, byte[]> entry : entries.entrySet())
+            writer.append(writer.partitioner.decorateKey(entry.getKey()),
+                          entry.getValue());
+        new File(writer.indexFilename()).deleteOnExit();
+        new File(writer.filterFilename()).deleteOnExit();
+        return writer.closeAndOpenReader();
+    }
+
+    public static SSTableReader writeRawBigSSTable(String tablename, String cfname, SortedMap<String, byte[]> entries, long keyCount) throws IOException
+    {
+        File f = tempSSTableFile(tablename, cfname);
+        SSTableWriter writer = new SSTableWriter(f.getAbsolutePath(), keyCount, StorageService.getPartitioner());
         for (Map.Entry<String, byte[]> entry : entries.entrySet())
             writer.append(writer.partitioner.decorateKey(entry.getKey()),
                           entry.getValue());
