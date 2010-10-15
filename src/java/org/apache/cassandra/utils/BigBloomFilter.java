@@ -24,9 +24,8 @@ public class BigBloomFilter extends BloomFilter
     private static final Logger logger = Logger.getLogger(BigBloomFilter.class);
 
     private static final int log2PerBucket = 30;
-    protected final int numHashes;
-    protected final long numBits;
-    private BigBitSet filter;
+
+    protected BigBitSet filter;
     private final Charset CHARSET_FOR_STRINGHASH = Charset.forName("UTF-16");
 
     protected static int maxBucketsPerElementForBigBloomFilter(long numElements)
@@ -40,35 +39,27 @@ public class BigBloomFilter extends BloomFilter
         return Math.min(BloomCalculations.probs.length - 1, (int)v);
     }
 
-    public BigBloomFilter(long numBits, int numHashes)
+    public BigBloomFilter(long nbits, int hashCount)
     {
-        super(numHashes, new BitSet(1));
-System.out.println("BigBloomFilter: 0: " + numBits + "; " + numHashes);
+//TODO: REFACTOR
+        super(hashCount, null);
 
-        assert numBits > 0 : "numBits must be positive: " + numBits;
-        assert numBits <= ((0x1L << log2PerBucket)*(long)Integer.MAX_VALUE) : "numBits must be less than " + ((0x1L << log2PerBucket)*(long)Integer.MAX_VALUE);
+        assert nbits > 0 : "nbits must be positive: " + nbits;
+        assert nbits <= ((0x1L << log2PerBucket)*(long)Integer.MAX_VALUE) : "nbits must be less than " + ((0x1L << log2PerBucket)*(long)Integer.MAX_VALUE);
 
-        assert numHashes > 0 : "numHashes must be positive: " + numHashes;
-        this.numHashes = numHashes;
+        assert hashCount > 0 : "hashCount must be positive: " + hashCount;
+        this.hashCount = hashCount;
 
-        filter = new BigBitSet(numBits);
-        this.numBits = filter.size();
+        filter = new BigBitSet(nbits);
     }
 
-    public BigBloomFilter(BigBitSet bbs, int numHashes)
+    public BigBloomFilter(BigBitSet bbs, int hashCount)
     {
-        super(numHashes, new BitSet(1));
-System.out.println("BigBloomFilter: 1: " + bbs.size() + "; " + numHashes);
+//TODO: REFACTOR
+        super(hashCount, null);
 
-        numBits = bbs.size();
         filter = bbs;
-        this.numHashes = numHashes;
-    }
-
-    @Override
-    int getHashCount()
-    {
-        return numHashes;
+        this.hashCount = hashCount;
     }
 
     @Override
@@ -87,14 +78,16 @@ System.out.println("BigBloomFilter: 1: " + bbs.size() + "; " + numHashes);
         return filter;
     }
 
-    private long[] getHashBits(byte[] key) {
+    private long[] getHashBits(byte[] key)
+    {
         //TODO (sjiang) optimize with anonymous functions and/or allow custom hash
-        long[] bitIndices = new long[numHashes];
+        long[] bitIndices = new long[hashCount];
         long hash1 = LongMurmurHash.longHash(key, 0);
         long hash2 = LongMurmurHash.longHash(key, (int)(hash1 & 0xffffffffL));
 
-        for (int i = 0; i < numHashes; ++i) {
-            bitIndices[i] = Math.abs((hash1 + (long)i * hash2) % numBits);
+        for (int i = 0; i < hashCount; ++i)
+        {
+            bitIndices[i] = Math.abs((hash1 + (long)i * hash2) % filter.size());
         }
         return bitIndices;
     }
@@ -103,8 +96,8 @@ System.out.println("BigBloomFilter: 1: " + bbs.size() + "; " + numHashes);
      * @param bits the set of bit offsets to check
      * @returns true if all of the bits are set to true
      */
-    private boolean checkBits(long[] bits) {
-System.out.println("checkBits: 0:");
+    private boolean checkBits(long[] bits)
+    {
         for (long bitIndex : bits) {
             if (!filter.get(bitIndex))
                 return false;
@@ -115,22 +108,20 @@ System.out.println("checkBits: 0:");
     @Override
     public boolean isPresent(String key)
     {
-System.out.println("isPresent: 0: " + key);
         return isPresent(key.getBytes(CHARSET_FOR_STRINGHASH));
     }
 
     @Override
     public boolean isPresent(byte[] key)
     {
-System.out.println("isPresent: A: " + ArrayUtils.toString(key));
         long[] hashBits = getHashBits(key);
-System.out.println("isPresent: B:");
         return checkBits(hashBits);
     }
 
-    private void setBits(long[] bits) {
-System.out.println("setBits: 0:");
-        for (long bitIndex : bits) {
+    private void setBits(long[] bits)
+    {
+        for (long bitIndex : bits)
+        {
             filter.set(bitIndex);
         }
     }
@@ -138,18 +129,14 @@ System.out.println("setBits: 0:");
     @Override
     public void add(String key)
     {
-System.out.println("add: 0:");
         add(key.getBytes(CHARSET_FOR_STRINGHASH));
     }
 
     @Override
     public void add(byte[] key)
     {
-System.out.println("add: A:");
         long[] hashBits = getHashBits(key);
-System.out.println("add: B:");
         setBits(hashBits);
-System.out.println("add: C:");
     }
 
     @Override
@@ -161,6 +148,7 @@ System.out.println("add: C:");
     @Override
     int buckets()
     {
+        //XXX: backwards-compatible
         return (int)filter.size();
     }
 
@@ -168,12 +156,7 @@ System.out.println("add: C:");
     int emptyBuckets()
     {
         //XXX: backwards-compatible
-        return (int)(numBits - filter.cardinality());
+        return (int)(filter.size() - filter.cardinality());
     }
-
-//TODO: MAYBE?
-    /** @return a BloomFilter that always returns a positive match, for testing */
-//    @Override
-//    public static BloomFilter alwaysMatchingBloomFilter()
 }
 

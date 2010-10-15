@@ -44,12 +44,12 @@ public class BloomFilter extends Filter
         return serializer_;
     }
 
-    private BitSet filter_;
+    protected BitSet filter;
 
     BloomFilter(int hashes, BitSet filter)
     {
         hashCount = hashes;
-        filter_ = filter;
+        this.filter = filter;
     }
 
     private static BitSet bucketsFor(long numElements, int bucketsPer)
@@ -120,24 +120,19 @@ public class BloomFilter extends Filter
 
     public void clear()
     {
-        filter_.clear();
+        filter.clear();
     }
 
     int buckets()
     {
-        return filter_.size();
-    }
-
-    BitSet filter()
-    {
-        return filter_;
+        return filter.size();
     }
 
     public boolean isPresent(String key)
     {
         for (int bucketIndex : getHashBuckets(key))
         {
-            if (!filter_.get(bucketIndex))
+            if (!filter.get(bucketIndex))
             {
                 return false;
             }
@@ -149,7 +144,7 @@ public class BloomFilter extends Filter
     {
         for (int bucketIndex : getHashBuckets(key))
         {
-            if (!filter_.get(bucketIndex))
+            if (!filter.get(bucketIndex))
             {
                 return false;
             }
@@ -159,14 +154,14 @@ public class BloomFilter extends Filter
 
     /*
      @param key -- value whose hash is used to fill
-     the filter_.
+     the filter.
      This is a general purpose API.
      */
     public void add(String key)
     {
         for (int bucketIndex : getHashBuckets(key))
         {
-            filter_.set(bucketIndex);
+            filter.set(bucketIndex);
         }
     }
 
@@ -174,13 +169,13 @@ public class BloomFilter extends Filter
     {
         for (int bucketIndex : getHashBuckets(key))
         {
-            filter_.set(bucketIndex);
+            filter.set(bucketIndex);
         }
     }
 
     public String toString()
     {
-        return filter_.toString();
+        return filter.toString();
     }
 
     ICompactSerializer tserializer()
@@ -193,7 +188,7 @@ public class BloomFilter extends Filter
         int n = 0;
         for (int i = 0; i < buckets(); i++)
         {
-            if (!filter_.get(i))
+            if (!filter.get(i))
             {
                 n++;
             }
@@ -220,7 +215,7 @@ class BloomFilterSerializer implements ICompactSerializer<BloomFilter>
         ObjectOutputStream oos = new ObjectOutputStream(dos);
         if (bf instanceof BigBloomFilter)
         {
-            for (BitSet bs : ((BigBloomFilter)bf).bigFilter().buckets)
+            for (BitSet bs : ((BigBloomFilter)bf).filter.buckets)
             {
                 oos.writeObject(bs);
                 oos.flush();
@@ -229,7 +224,7 @@ class BloomFilterSerializer implements ICompactSerializer<BloomFilter>
         }
 
         // BloomFilter
-        oos.writeObject(bf.filter());
+        oos.writeObject(bf.filter);
         oos.flush();
     }
 

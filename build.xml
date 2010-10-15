@@ -363,6 +363,7 @@
       <jvmarg value="-Dstorage-config=${test.conf}"/>
       <jvmarg value="-Dlog4j.configuration=log4j-junit.properties" />
       <jvmarg value="-ea"/>
+      <jvmarg value="-Xmx2048m"/>
       <classpath>
         <path refid="cassandra.classpath" />
         <pathelement location="${test.classes}"/>
