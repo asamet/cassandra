@@ -6,6 +6,7 @@ import java.util.BitSet;
 
 import org.apache.commons.lang.ArrayUtils;
 
+import org.apache.cassandra.io.ICompactSerializer;
 import org.apache.cassandra.utils.BloomFilter;
 
 import org.apache.log4j.Logger;
@@ -27,6 +28,11 @@ public class BigBloomFilter extends BloomFilter
 
     protected BigBitSet filter;
     private final Charset CHARSET_FOR_STRINGHASH = Charset.forName("UTF-16");
+
+    public static ICompactSerializer<BloomFilter> serializer()
+    {
+        return BloomFilter.serializer();
+    }
 
     protected static int maxBucketsPerElementForBigBloomFilter(long numElements)
     {
