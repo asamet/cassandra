@@ -120,7 +120,7 @@ public abstract class SSTable
         return compactedFilename(path);
     }
 
-    protected static String filterFilename(String dataFile)
+    public static String filterFilename(String dataFile)
     {
         String[] parts = dataFile.split("-");
         parts[parts.length - 1] = "Filter.db";
