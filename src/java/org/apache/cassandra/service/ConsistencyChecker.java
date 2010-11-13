@@ -181,9 +181,17 @@ class ConsistencyChecker implements Runnable
 			{
 				readResponseResolver_.resolve(responses_);
             }
+            catch (UnsupportedOperationException ex)
+            {
+                // We expect this exception because of unsupported super column operations, so
+                // only log in debug mode.
+                logger_.debug("Got an exception.  Returning.", ex);
+                return;
+            }
             catch (Exception ex)
             {
-                throw new RuntimeException(ex);
+                logger_.info("Got an exception.  Returning.", ex);
+                return;
             }
         }
     }
